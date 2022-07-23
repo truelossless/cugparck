@@ -1,0 +1,15 @@
+[package]
+name = "cugparck-cli"
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+debug = true
+
+[dependencies]
+cugparck-commons = { path = "../commons" }
+cugparck-cpu = { path = "../cpu" }
+color-eyre = "0.5"
+hex = "0.4.3"
+clap = { version = "3.2.8", features = ["derive"] }
+indicatif = "0.16.2"
