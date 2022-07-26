@@ -1,15 +1,20 @@
 [package]
 name = "cugparck-cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-
-[profile.release]
-debug = true
 
 [dependencies]
 cugparck-commons = { path = "../commons" }
 cugparck-cpu = { path = "../cpu" }
 color-eyre = "0.5"
+sysinfo = "0.24.7"
 hex = "0.4.3"
 clap = { version = "3.2.8", features = ["derive"] }
 indicatif = "0.16.2"
+comfy-table = "5.0.0"
+nt-hive = { git = "https://github.com/truelossless/nt-hive" }
+md-5 = "0.10.1"
+rc4 = "0.1.0"
+des = "0.8.1"
+aes = "0.8.1"
+cbc = "0.1.2"

@@ -1,12 +1,12 @@
-use color_eyre::{eyre::bail, Result};
+use color_eyre::{eyre::bail, owo_colors::OwoColorize, Result};
 use cugparck_cpu::{CompressedTable, RainbowTableStorage, SimpleTable, TableCluster};
 
 use crate::{load_tables_from_dir, Attack};
 
-pub fn attack(atk: Attack) -> Result<()> {
-    let (mmaps, is_compressed) = load_tables_from_dir(&atk.dir)?;
+pub fn attack(args: Attack) -> Result<()> {
+    let (mmaps, is_compressed) = load_tables_from_dir(&args.dir)?;
 
-    let digest = hex::decode(atk.digest)
+    let digest = hex::decode(args.digest)
         .unwrap()
         .as_slice()
         .try_into()
@@ -29,9 +29,9 @@ pub fn attack(atk: Attack) -> Result<()> {
     };
 
     if let Some(password) = search {
-        println!("{password}");
+        println!("{}", password.green());
     } else {
-        eprintln!("No password found for the given digest");
+        eprintln!("{}", "No password found for the given digest".red());
     }
 
     Ok(())

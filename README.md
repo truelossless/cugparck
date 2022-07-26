@@ -31,6 +31,11 @@ In particular, it implements the following features that may not be present in o
     - Multithreaded CPU attack
     - NTLM, MD4, MD5, SHA-1, SHA-2, SHA-3 support
 
+- Windows accounts dumping and cracking
+    - Dump the NTLM hashes from Windows accounts
+    - Supports legacy RC4 encryption as well as AES encryption (Windows >= 1607)
+    - Automatically try to crack the dumped hashes
+
 ## Installation
 
 No executable is currently provided but I will work on getting a CI pipeline running for at least the Linux and Windows builds.
@@ -39,7 +44,7 @@ Compiling from source the CLI or library can be tough because a valid CUDA insta
 
 On Windows if you're kind enough to the NVIDIA and LLVM gods no further steps are needed and a `cargo build --release` should do the trick.
 
-On Linux your best bet is using Docker to avoid incompabilities between CUDA/GCC/LLVM toolchains. [Follow the instructions here to get started](https://github.com/Rust-GPU/Rust-CUDA/blob/master/guide/src/guide/getting_started.md#docker).
+On Linux your best bet is to use Docker to avoid incompabilities between the CUDA/GCC/LLVM toolchains. [Follow the instructions here to get started](https://github.com/Rust-GPU/Rust-CUDA/blob/master/guide/src/guide/getting_started.md#docker).
 
 Note that a specific nightly Rust toolchain is required. It will be downloaded automatically thanks to the `rust-toolchain` file.
 
@@ -55,10 +60,10 @@ Besides that, here is a list of things that could be improved/implemented/tested
 - AMD support (OpenCL? wgpu?)
 - Using the CPU cores during the GPU calculations
 - Better error checks and messages
-- Better memory management, such as more precise memory predictions for the device's memory and host's RAM. This would allow to schedule better batches on the GPU, and make sure that no memory allocation fails.
-- Support for external memory (SSD and/or HDD). I think [6] should be a great startpoint (pun intended).
-- Support for distribution. Maybe MPI can be used? [3] Section 4 gives pointers to implement a distributed architecture with filtration.
-- Using a `HashSet` instead of a sorted array (This would use more RAM but put less strain on the CPU).
+- Better memory management, such as more precise memory predictions for the device's memory and host's RAM. This would allow to schedule better batches on the GPU, and make sure that no memory allocation fails
+- Support for external memory (SSD and/or HDD). I think [6] should be a great startpoint (pun intended)
+- Support for distribution. Maybe MPI can be used? [3] Section 4 gives pointers to implement a distributed architecture with filtration
+- Using a `HashSet` instead of a sorted array (This would use more RAM but put less strain on the CPU)
 - Smaller RAM footprint
 - Implement checkpoints to speed up the attack phase as described in [7]
 

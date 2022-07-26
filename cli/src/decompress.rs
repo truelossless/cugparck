@@ -8,10 +8,10 @@ use cugparck_cpu::{
     CompressedTable, Deserialize, Infallible, RainbowTable, RainbowTableStorage, SimpleTable,
 };
 
-pub fn decompress(decomp: Decompress) -> Result<()> {
-    create_dir_to_store_tables(&decomp.out_dir)?;
+pub fn decompress(args: Decompress) -> Result<()> {
+    create_dir_to_store_tables(&args.out_dir)?;
 
-    let (mmaps, is_compressed) = load_tables_from_dir(&decomp.in_dir)?;
+    let (mmaps, is_compressed) = load_tables_from_dir(&args.in_dir)?;
 
     if !is_compressed {
         bail!("The tables are already decompressed");
@@ -19,7 +19,7 @@ pub fn decompress(decomp: Decompress) -> Result<()> {
 
     for mmap in mmaps {
         let ar = CompressedTable::load(&mmap)?;
-        let path = decomp.out_dir.join(format!("table_{}.rt", ar.ctx().tn));
+        let path = args.out_dir.join(format!("table_{}.rt", ar.ctx().tn));
 
         let table: CompressedTable = ar
             .deserialize(&mut Infallible)

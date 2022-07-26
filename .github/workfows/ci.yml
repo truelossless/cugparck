@@ -1,0 +1,100 @@
+on: push
+
+jobs:
+  build_linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v3
+
+      - name: Build Dockerfile
+        run: docker build -t rust-cuda .
+
+      - name: Start Docker container
+        run: docker run rust-cuda -v $PWD:/root/rust-cuda --entrypoint /bin/bash --name builder
+
+      - name: Build executable
+        run: docker exec -w /root/rust-cuda/cli builder cargo build --release
+
+      - name: Test
+        run: |
+          docker exec -w /root/rust-cuda/commons builder cargo test --release
+          docker exec -w /root/rust-cuda/cpu builder cargo test --release
+          docker exec -w /root/rust-cuda/cli builder cargo test --release
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: cug-linux
+          path: cli/target/release/cugparck-cli
+
+  build_windows:
+    runs-on: windows-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v3
+
+      - name: Build executable
+        run: |
+          cd cli
+          cargo build --release
+
+      - name: Run tests
+        run: |
+          cd commons
+          cargo test --release --no-fail-fast
+          cd ../cpu
+          cargo test --release --no-fail-fast
+          cd ../cli
+          cargo test --release --no-fail-fast
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: cug-windows
+          path: cli/target/release/cugparck-cli.exe
+
+  upload:
+    needs: [build_windows, build_linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: cug-windows
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: cug-linux
+      - name: Get commit infos
+        id: commit
+        run: echo "::set-output name=hash::$(echo ${GITHUB_SHA} | cut -c1-8)"
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.commit.outputs.hash }}
+          release_name: Release ${{ steps.commit.outputs.hash }}
+          body: This is an automated build for commit ${{ steps.commit.outputs.hash }}.
+          draft: false
+          prerelease: true
+      - name: Upload Linux binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: cugparck-cli
+          asset_name: cug-linux-${{ steps.commit.outputs.hash }}
+          asset_content_type: application/octet-stream
+      - name: Upload Windows binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: cugparck-cli.exe
+          asset_name: cug-windows-${{ steps.commit.outputs.hash }}.exe
+          asset_content_type: application/zip

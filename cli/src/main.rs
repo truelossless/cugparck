@@ -2,6 +2,7 @@ mod attack;
 mod compress;
 mod decompress;
 mod generate;
+mod stealdows;
 
 use std::{
     fs::{self, File},
@@ -22,6 +23,7 @@ use attack::attack;
 use compress::compress;
 use decompress::decompress;
 use generate::generate;
+use stealdows::stealdows;
 
 /// All the hash types supported.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum)]
@@ -59,7 +61,7 @@ impl From<HashTypeArg> for HashType {
     }
 }
 
-/// Rainbow table application allowing attacks and GPU-accelerated table generation.
+/// Cugparck is a modern rainbow table library & CLI.
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Cli {
@@ -73,6 +75,7 @@ enum Commands {
     Generate(Generate),
     Compress(Compress),
     Decompress(Decompress),
+    Stealdows(Stealdows),
 }
 
 /// Find the password producing a certain hash digest.
@@ -88,6 +91,7 @@ pub struct Attack {
 }
 
 /// Compress a set of rainbow tables using compressed delta encoding.
+///
 /// Tables are smaller on the disk but slower to search.
 #[derive(Args)]
 pub struct Compress {
@@ -101,6 +105,7 @@ pub struct Compress {
 }
 
 /// Decompress a set of compressed rainbow tables.
+///
 /// Decompressed tables are bigger on the disk but faster to search.
 #[derive(Args)]
 pub struct Decompress {
@@ -171,6 +176,33 @@ pub struct Generate {
     startpoints: Option<usize>,
 }
 
+/// Dump and crack NTLM hashes from Windows accounts.
+///
+/// Note that this cannot be used on a Windows machine to dump the hashes of the same Windows,
+/// because the required files are locked by the OS.
+#[derive(Args)]
+pub struct Stealdows {
+    /// Search for a specific user.
+    /// You can specify several users by using multiple times this flag.
+    #[clap(short, long, value_parser)]
+    user: Vec<String>,
+
+    /// Attempts to crack the hashes dumped using the rainbow table(s) provided as an argument.
+    /// The hash type of the table(s) must be NTLM.
+    #[clap(long, value_parser, value_name = "TABLES_DIR")]
+    crack: Option<PathBuf>,
+
+    /// The path to the SAM registry file. If not provided an attempt will be made to find it automatically.
+    /// This path is usually `C:\Windows\System32\config\SAM`.
+    #[clap(long, value_parser, requires = "system")]
+    sam: Option<PathBuf>,
+
+    /// The path to the SYSTEM registry file. If not provided an attempt will be made to find it automatically.
+    /// This path is usually `C:\Windows\System32\config\SYSTEM`.
+    #[clap(long, value_parser, requires = "sam")]
+    system: Option<PathBuf>,
+}
+
 /// Checks if the charset is made of ASCII characters.
 fn check_charset(charset: &str) -> Result<String> {
     if !charset.is_ascii() {
@@ -202,10 +234,11 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.commands {
-        Commands::Attack(atk) => attack(atk)?,
-        Commands::Generate(gen) => generate(gen)?,
-        Commands::Compress(comp) => compress(comp)?,
-        Commands::Decompress(decomp) => decompress(decomp)?,
+        Commands::Attack(args) => attack(args)?,
+        Commands::Generate(args) => generate(args)?,
+        Commands::Compress(args) => compress(args)?,
+        Commands::Decompress(args) => decompress(args)?,
+        Commands::Stealdows(args) => stealdows(args)?,
     }
 
     Ok(())
