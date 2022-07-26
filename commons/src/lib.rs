@@ -5,7 +5,7 @@ extern crate std;
 
 mod ntlm;
 
-pub use ntlm::ntlm;
+use ntlm::ntlm;
 pub use tinyvec::ArrayVec;
 
 use core::{

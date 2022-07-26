@@ -38,15 +38,25 @@ In particular, it implements the following features that may not be present in o
 
 ## Installation
 
-No executable is currently provided but I will work on getting a CI pipeline running for at least the Linux and Windows builds.
+### CLI
 
-Compiling from source the CLI or library can be tough because a valid CUDA installation is required.
+The Windows and Linux CLI binaries are available [here](https://github.com/truelossless/cugparck/releases).
+
+### Library
+
+The library will be added to [crates.io](https://crates.io/) once the documentation is good enough.
+
+### Compiling from source
+
+Compiling from source the CLI or the library can be tough because a valid CUDA installation is required.
 
 On Windows if you're kind enough to the NVIDIA and LLVM gods no further steps are needed and a `cargo build --release` should do the trick.
 
 On Linux your best bet is to use Docker to avoid incompabilities between the CUDA/GCC/LLVM toolchains. [Follow the instructions here to get started](https://github.com/Rust-GPU/Rust-CUDA/blob/master/guide/src/guide/getting_started.md#docker).
 
 Note that a specific nightly Rust toolchain is required. It will be downloaded automatically thanks to the `rust-toolchain` file.
+
+You can take a look at the `.github/workflows/ci.yml` file to see how the CI manages this process.
 
 ## Contributing
 

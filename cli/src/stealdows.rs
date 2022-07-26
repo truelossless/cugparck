@@ -293,7 +293,7 @@ fn des_decrypt_hash(enc_hash: &[u8], rid: &[u8]) -> Digest {
     let mut ntlm_2 = [0u8; HASH_LENGTH / 2];
     des.decrypt_block_b2b(enc_ntlm_2.into(), GenericArray::from_mut_slice(&mut ntlm_2));
 
-    let mut hash: Digest = Digest::new();
+    let mut hash = Digest::new();
     hash.extend_from_slice(&ntlm_1);
     hash.extend_from_slice(&ntlm_2);
 

@@ -1,4 +1,4 @@
-on: push
+on: [push, pull_request]
 
 jobs:
   build_linux:
@@ -10,13 +10,13 @@ jobs:
       - name: Build Dockerfile
         run: docker build -t rust-cuda .
 
-      - name: Start Docker container
-        run: docker run rust-cuda -v $PWD:/root/rust-cuda --entrypoint /bin/bash --name builder
+      - name: Start Docker
+        run: docker run -t -d -v $PWD:/root/rust-cuda --name builder rust-cuda 
 
       - name: Build executable
         run: docker exec -w /root/rust-cuda/cli builder cargo build --release
 
-      - name: Test
+      - name: Run Tests
         run: |
           docker exec -w /root/rust-cuda/commons builder cargo test --release
           docker exec -w /root/rust-cuda/cpu builder cargo test --release
@@ -33,6 +33,11 @@ jobs:
     steps:
       - name: Clone repository
         uses: actions/checkout@v3
+
+      - name: Install CUDA
+        uses: Jimver/cuda-toolkit@v0.2.8
+        with:
+          cuda: '11.7.0'
 
       - name: Build executable
         run: |
@@ -62,13 +67,16 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: cug-windows
+
       - name: Download Linux artifact
         uses: actions/download-artifact@v3
         with:
           name: cug-linux
+
       - name: Get commit infos
         id: commit
         run: echo "::set-output name=hash::$(echo ${GITHUB_SHA} | cut -c1-8)"
+
       - name: Create release
         id: create_release
         uses: actions/create-release@v1
@@ -80,6 +88,7 @@ jobs:
           body: This is an automated build for commit ${{ steps.commit.outputs.hash }}.
           draft: false
           prerelease: true
+
       - name: Upload Linux binary
         uses: actions/upload-release-asset@v1
         env:
@@ -89,6 +98,7 @@ jobs:
           asset_path: cugparck-cli
           asset_name: cug-linux-${{ steps.commit.outputs.hash }}
           asset_content_type: application/octet-stream
+
       - name: Upload Windows binary
         uses: actions/upload-release-asset@v1
         env:
