@@ -11,7 +11,7 @@ jobs:
         run: docker build -t rust-cuda .
 
       - name: Start Docker
-        run: docker run -t -d -v $PWD:/root/rust-cuda --name builder rust-cuda 
+        run: docker run -t -d -v $PWD:/root/rust-cuda --name builder rust-cuda
 
       - name: Build executable
         run: docker exec -w /root/rust-cuda/cli builder cargo build --release
@@ -37,7 +37,7 @@ jobs:
       - name: Install CUDA
         uses: Jimver/cuda-toolkit@v0.2.8
         with:
-          cuda: '11.7.0'
+          cuda: "11.2.2"
 
       - name: Build executable
         run: |
@@ -53,11 +53,17 @@ jobs:
           cd ../cli
           cargo test --release --no-fail-fast
 
+      - name: Zip with DLL
+        run: |
+          cd cli/target/release/
+          cp C:\\Windows\\System32\\nvcuda.dll .
+          7z a cugparck-cli.zip nvcuda.dll cugparck-cli.exe
+
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: cug-windows
-          path: cli/target/release/cugparck-cli.exe
+          path: cli/target/release/cugparck-cli.zip
 
   upload:
     needs: [build_windows, build_linux]
@@ -105,6 +111,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: cugparck-cli.exe
-          asset_name: cug-windows-${{ steps.commit.outputs.hash }}.exe
+          asset_path: cugparck-cli.zip
+          asset_name: cug-windows-${{ steps.commit.outputs.hash }}.zip
           asset_content_type: application/zip
