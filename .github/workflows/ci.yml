@@ -55,8 +55,8 @@ jobs:
 
       - name: Zip with DLL
         run: |
+          cp resources/nvcuda.dll cli/target/release/
           cd cli/target/release/
-          cp C:\\Windows\\System32\\nvcuda.dll .
           7z a cugparck-cli.zip nvcuda.dll cugparck-cli.exe
 
       - name: Upload artifact
