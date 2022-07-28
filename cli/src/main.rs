@@ -12,8 +12,9 @@ use std::{
 
 use clap::{clap_derive::ArgEnum, value_parser, Args, Parser, Subcommand};
 
-use color_eyre::eyre::{bail, Context, Result};
+use anyhow::{ensure, Context, Result};
 
+use crossterm::style::{style, Color, Stylize};
 use cugparck_commons::{
     HashType, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET, DEFAULT_MAX_PASSWORD_LENGTH,
 };
@@ -205,32 +206,40 @@ pub struct Stealdows {
 
 /// Checks if the charset is made of ASCII characters.
 fn check_charset(charset: &str) -> Result<String> {
-    if !charset.is_ascii() {
-        bail!("The charset can only contain ASCII characters");
-    }
+    ensure!(
+        charset.is_ascii(),
+        "The charset can only contain ASCII characters"
+    );
 
     Ok(charset.to_owned())
 }
 
 /// Checks if the alpha coefficient is a float between 0 and 1.
 fn check_alpha(alpha: &str) -> Result<f64> {
-    let alpha = alpha.parse::<f64>().wrap_err("Alpha should be a number")?;
+    let alpha = alpha.parse::<f64>().context("Alpha should be a number")?;
 
-    if !(0. ..=1.).contains(&alpha) {
-        bail!("Alpha should be comprised between 0 and 1");
-    }
+    ensure!(
+        (0. ..=1.).contains(&alpha),
+        "Alpha should be comprised between 0 and 1"
+    );
 
     Ok(alpha)
 }
 
 /// Checks if the digest is valid hexadecimal.
 fn check_hex(hex: &str) -> Result<String> {
-    hex::decode(hex).wrap_err("The digest is not valid hexadecimal")?;
+    hex::decode(hex).context("The digest is not valid hexadecimal")?;
     Ok(hex.to_owned())
 }
 
-fn main() -> Result<()> {
-    color_eyre::install()?;
+fn main() {
+    if let Err(err) = try_main() {
+        eprintln!("{}", style(format!("{:?}", err)).with(Color::Red));
+        std::process::exit(1);
+    }
+}
+
+fn try_main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.commands {
@@ -247,7 +256,7 @@ fn main() -> Result<()> {
 /// Helper function to create a directory where will be stored rainbow tables.
 fn create_dir_to_store_tables(dir: &Path) -> Result<()> {
     fs::create_dir(dir)
-        .wrap_err("Unable to create the specified directory to store the rainbow tables")
+        .context("Unable to create the specified directory to store the rainbow tables")
 }
 
 /// Helper function to load rainbow tables from a directory.
@@ -257,7 +266,7 @@ fn load_tables_from_dir(dir: &Path) -> Result<(Vec<Mmap>, bool)> {
     let mut simple_tables = false;
     let mut compressed_tables = false;
 
-    for file in fs::read_dir(&dir).wrap_err("Unable to open the specified directory")? {
+    for file in fs::read_dir(&dir).context("Unable to open the specified directory")? {
         let file = file?;
 
         if file.file_type()?.is_dir() {
@@ -270,19 +279,18 @@ fn load_tables_from_dir(dir: &Path) -> Result<(Vec<Mmap>, bool)> {
             _ => continue,
         };
 
-        let file = File::open(file.path()).wrap_err("Unable to open a rainbow table")?;
+        let file = File::open(file.path()).context("Unable to open a rainbow table")?;
 
         // SAFETY: the file exists and is not being modified anywhere else
         unsafe { mmaps.push(Mmap::map(&file)?) };
     }
 
-    if mmaps.is_empty() {
-        bail!("No table found in the given directory");
-    }
+    ensure!(!mmaps.is_empty(), "No table found in the given directory");
 
-    if simple_tables && compressed_tables {
-        bail!("All tables in the directory should be of the same type");
-    }
+    ensure!(
+        !(simple_tables && compressed_tables),
+        "All tables in the directory should be of the same type",
+    );
 
     Ok((mmaps, compressed_tables))
 }

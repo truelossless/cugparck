@@ -1,4 +1,4 @@
-use color_eyre::{eyre::Context, Result};
+use anyhow::{Context, Result};
 use cugparck_commons::DEFAULT_FILTER_COUNT;
 use cugparck_cpu::{
     CompressedTable, Event, RainbowTable, RainbowTableCtxBuilder, RainbowTableStorage, SimpleTable,
@@ -66,9 +66,9 @@ pub fn generate(args: Generate) -> Result<()> {
             simple_table
                 .into_rainbow_table::<CompressedTable>()
                 .store(&table_path)
-                .wrap_err(disk_error)?
+                .context(disk_error)?
         } else {
-            simple_table.store(&table_path).wrap_err(disk_error)?;
+            simple_table.store(&table_path).context(disk_error)?;
         }
     }
 

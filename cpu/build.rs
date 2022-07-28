@@ -16,7 +16,7 @@ fn main() {
     //     .unwrap();
 
     CudaBuilder::new("../gpu")
-        .copy_to("../resources/module.ptx")
+        .copy_to("../module.ptx")
         .build()
         .unwrap();
 }

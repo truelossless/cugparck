@@ -1,9 +1,6 @@
 use crate::{create_dir_to_store_tables, load_tables_from_dir, Compress};
 
-use color_eyre::{
-    eyre::{bail, Context},
-    Result,
-};
+use anyhow::{ensure, Context, Result};
 use cugparck_cpu::{
     CompressedTable, Deserialize, Infallible, RainbowTable, RainbowTableStorage, SimpleTable,
 };
@@ -13,9 +10,7 @@ pub fn compress(args: Compress) -> Result<()> {
 
     let (mmaps, is_compressed) = load_tables_from_dir(&args.in_dir)?;
 
-    if is_compressed {
-        bail!("The tables are already compressed");
-    }
+    ensure!(!is_compressed, "The tables are already compressed");
 
     for mmap in mmaps {
         let ar = SimpleTable::load(&mmap)?;
@@ -23,7 +18,7 @@ pub fn compress(args: Compress) -> Result<()> {
 
         let table: SimpleTable = ar
             .deserialize(&mut Infallible)
-            .wrap_err("Unable to deserialize the rainbow table")?;
+            .context("Unable to deserialize the rainbow table")?;
 
         table.into_rainbow_table::<CompressedTable>().store(&path)?;
     }

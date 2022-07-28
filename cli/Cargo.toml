@@ -6,13 +6,14 @@ edition = "2021"
 [dependencies]
 cugparck-commons = { path = "../commons" }
 cugparck-cpu = { path = "../cpu" }
-color-eyre = "0.5"
+anyhow = "1.0.58"
 sysinfo = "0.24.7"
 hex = "0.4.3"
 clap = { version = "3.2.8", features = ["derive"] }
 indicatif = "0.16.2"
+crossterm = "0.24.0"
 comfy-table = "5.0.0"
-nt-hive = { git = "https://github.com/truelossless/nt-hive" }
+nt-hive = { git = "https://github.com/ColinFinck/nt-hive" }
 md-5 = "0.10.1"
 rc4 = "0.1.0"
 des = "0.8.1"

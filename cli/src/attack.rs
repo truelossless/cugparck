@@ -1,4 +1,6 @@
-use color_eyre::{eyre::bail, owo_colors::OwoColorize, Result};
+use anyhow::{bail, Result};
+use crossterm::style::{style, Color, Stylize};
+
 use cugparck_cpu::{CompressedTable, RainbowTableStorage, SimpleTable, TableCluster};
 
 use crate::{load_tables_from_dir, Attack};
@@ -29,7 +31,7 @@ pub fn attack(args: Attack) -> Result<()> {
     };
 
     if let Some(password) = search {
-        println!("{}", password.green());
+        println!("{}", style(password).with(Color::Green));
     } else {
         eprintln!("{}", "No password found for the given digest".red());
     }

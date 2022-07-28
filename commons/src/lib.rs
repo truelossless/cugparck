@@ -144,7 +144,7 @@ pub fn ascii_to_charset(c: u8, charset: &[u8]) -> u8 {
     charset.iter().position(|x| *x == c).unwrap() as u8
 }
 
-/// The digest. TODO: abstract over typea
+/// A digest stored in a stack-allocated vector.
 pub type Digest = ArrayVec<[u8; MAX_DIGEST_LENGTH_ALLOWED]>;
 
 /// All the supported hash functions.

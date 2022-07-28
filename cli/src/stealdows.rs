@@ -11,11 +11,8 @@ use aes::{
     cipher::{generic_array::GenericArray, BlockDecrypt, BlockDecryptMut, KeyIvInit},
     Aes128,
 };
+use anyhow::{ensure, Context, Result};
 use cbc::Decryptor;
-use color_eyre::{
-    eyre::{eyre, Context},
-    Help, Result,
-};
 use comfy_table::{presets::UTF8_BORDERS_ONLY, Cell, Color, Table};
 use cugparck_commons::{Digest, Password};
 use cugparck_cpu::{CompressedTable, RainbowTable, RainbowTableStorage, SimpleTable, TableCluster};
@@ -132,7 +129,12 @@ struct Account {
 
 /// Returns the class name of a registry key.
 fn class_name<'a>(hive_root: &KeyNode<&Hive<&'a [u8]>, &'a [u8]>, path: &str) -> Result<String> {
-    Ok(hive_root.subpath(path).unwrap()?.class_name()?.to_string())
+    Ok(hive_root
+        .subpath(path)
+        .unwrap()?
+        .class_name()
+        .unwrap()?
+        .to_string())
 }
 
 /// Returns the value with the specified name in this registry key.
@@ -342,11 +344,11 @@ fn parse_rid(unordered_rid: &str) -> [u8; 4] {
 
 /// Returns a vec of the accounts and their hashes present in the given SAM file.
 fn decrypt_accounts(sam: &Path, system: &Path) -> Result<Vec<Account>> {
-    let sam = fs::read(sam).wrap_err("Unable to read the SAM file")?;
+    let sam = fs::read(sam).context("Unable to read the SAM file")?;
     let sam_hive = Hive::new(sam.as_ref())?;
     let sam_root = sam_hive.root_key_node()?;
 
-    let system = fs::read(system).wrap_err("Unable to read the SYSTEM file")?;
+    let system = fs::read(system).context("Unable to read the SYSTEM file")?;
     let system_hive = Hive::new(system.as_ref())?;
     let system_root = system_hive.root_key_node()?;
 
@@ -462,7 +464,7 @@ pub fn stealdows(args: Stealdows) -> Result<()> {
         let mut system_try = None;
 
         for disk in sys.disks() {
-            let sam_path = disk.mount_point().join(SAM_PATH);
+            let sam_path = dbg!(disk.mount_point().join(SAM_PATH));
             let system_path = disk.mount_point().join(SYSTEM_PATH);
 
             if sam_path.exists() && system_path.exists() {
@@ -472,19 +474,14 @@ pub fn stealdows(args: Stealdows) -> Result<()> {
             }
         }
 
-        if sam_try.is_none() {
-            return Err(
-                eyre!("Unable to automatically find the SAM and SYSTEM files. Is your Windows disk correctly mounted?")
-                    .suggestion("Try to specify them manually with the --sam and --system flags"),
-            );
-        }
+        ensure!(sam_try.is_some(), "Unable to automatically find the SAM and SYSTEM files. Is the Windows partition correctly mounted? \nSuggestion: Try to specify the two files manually with the --sam and --system flags");
 
         sam = sam_try.unwrap();
         system = system_try.unwrap();
     }
 
     let mut accounts = decrypt_accounts(&sam, &system)
-        .wrap_err("Error when decrypting the SAM or the SYSTEM file")?;
+        .context("Error when decrypting the SAM or the SYSTEM file")?;
 
     if !args.user.is_empty() {
         accounts = accounts
