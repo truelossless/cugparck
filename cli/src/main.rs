@@ -5,6 +5,7 @@ mod generate;
 mod stealdows;
 
 use std::{
+    collections::HashSet,
     fs::{self, File},
     path::{Path, PathBuf},
     string::String,
@@ -16,9 +17,12 @@ use anyhow::{ensure, Context, Result};
 
 use crossterm::style::{style, Color, Stylize};
 use cugparck_commons::{
-    HashType, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET, DEFAULT_MAX_PASSWORD_LENGTH,
+    Digest, HashType, Password, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET,
+    DEFAULT_MAX_PASSWORD_LENGTH,
 };
-use cugparck_cpu::Mmap;
+use cugparck_cpu::{
+    CompressedTable, Mmap, RainbowTable, RainbowTableStorage, SimpleTable, TableCluster,
+};
 
 use attack::attack;
 use compress::compress;
@@ -89,6 +93,11 @@ pub struct Attack {
     /// The directory containing the rainbow table(s) to use.
     #[clap(value_parser)]
     dir: PathBuf,
+
+    /// Don't load all the tables at the same time to save memory.
+    /// This is slower on average than searching with all the tables at once.
+    #[clap(long, value_parser)]
+    low_memory: bool,
 }
 
 /// Compress a set of rainbow tables using compressed delta encoding.
@@ -193,6 +202,12 @@ pub struct Stealdows {
     #[clap(long, value_parser, value_name = "TABLES_DIR")]
     crack: Option<PathBuf>,
 
+    #[clap(long, value_parser, requires = "crack")]
+    /// Don't load all the tables at the same time to save memory.
+    /// This is slower on average than searching with all the tables at once.
+    /// Only use this flag when the `crack` flag is used.
+    low_memory: bool,
+
     /// The path to the SAM registry file. If not provided an attempt will be made to find it automatically.
     /// This path is usually `C:\Windows\System32\config\SAM`.
     #[clap(long, value_parser, requires = "system")]
@@ -263,8 +278,8 @@ fn create_dir_to_store_tables(dir: &Path) -> Result<()> {
 /// Returns a vector of memory mapped rainbow tables and true if the tables loaded are compressed.
 fn load_tables_from_dir(dir: &Path) -> Result<(Vec<Mmap>, bool)> {
     let mut mmaps = Vec::new();
-    let mut simple_tables = false;
-    let mut compressed_tables = false;
+    let mut is_simple_tables = false;
+    let mut is_compressed_tables = false;
 
     for file in fs::read_dir(&dir).context("Unable to open the specified directory")? {
         let file = file?;
@@ -274,8 +289,8 @@ fn load_tables_from_dir(dir: &Path) -> Result<(Vec<Mmap>, bool)> {
         }
 
         match file.path().extension().map(|s| s.to_str()).flatten() {
-            Some("rt") => simple_tables = true,
-            Some("rtcde") => compressed_tables = true,
+            Some("rt") => is_simple_tables = true,
+            Some("rtcde") => is_compressed_tables = true,
             _ => continue,
         };
 
@@ -288,9 +303,90 @@ fn load_tables_from_dir(dir: &Path) -> Result<(Vec<Mmap>, bool)> {
     ensure!(!mmaps.is_empty(), "No table found in the given directory");
 
     ensure!(
-        !(simple_tables && compressed_tables),
+        !(is_simple_tables && is_compressed_tables),
         "All tables in the directory should be of the same type",
     );
 
-    Ok((mmaps, compressed_tables))
+    // check that the tables in the directory are all compatible.
+    // since we're mmaping our files, we shouldn't run out of memory.
+    let all_ctx = if is_compressed_tables {
+        mmaps
+            .iter()
+            .map(|mmap| Ok(CompressedTable::load(mmap)?.ctx()))
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        mmaps
+            .iter()
+            .map(|mmap| Ok(SimpleTable::load(mmap)?.ctx()))
+            .collect::<Result<Vec<_>>>()?
+    };
+
+    let table_numbers = all_ctx.iter().map(|ctx| ctx.tn).collect::<HashSet<_>>();
+
+    ensure!(
+        table_numbers.len() == mmaps.len(),
+        "All tables in the directory should have a different table number",
+    );
+
+    let ctx_spaces_and_hash_types = all_ctx
+        .iter()
+        .map(|ctx| (ctx.charset, ctx.max_password_length, ctx.hash_type))
+        .collect::<HashSet<_>>();
+
+    ensure!(
+        ctx_spaces_and_hash_types.len() == 1,
+        "All tables in the directory should use the same charset, maximum password length and hash function"
+    );
+
+    Ok((mmaps, is_compressed_tables))
+}
+
+/// Searches for a digest from the tables at a given path, table after table.
+/// If `low memory` is true, the tables aren't loaded at the same time to be searched in parallel.
+/// This slows the search but saves memory.
+fn search_tables(
+    digest: Digest,
+    mmaps: &[Mmap],
+    is_compressed: bool,
+    low_memory: bool,
+) -> Result<Option<Password>> {
+    match (is_compressed, low_memory) {
+        (true, true) => {
+            for mmap in mmaps {
+                if let Some(digest) = CompressedTable::load(mmap)?.search(digest) {
+                    return Ok(Some(digest));
+                }
+            }
+
+            Ok(None)
+        }
+
+        (true, false) => {
+            let tables = mmaps
+                .iter()
+                .map(|mmap| CompressedTable::load(mmap))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(TableCluster::new(&tables).search(digest))
+        }
+
+        (false, true) => {
+            for mmap in mmaps {
+                if let Some(digest) = SimpleTable::load(mmap)?.search(digest) {
+                    return Ok(Some(digest));
+                }
+            }
+
+            Ok(None)
+        }
+
+        (false, false) => {
+            let tables = mmaps
+                .iter()
+                .map(|mmap| SimpleTable::load(mmap))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(TableCluster::new(&tables).search(digest))
+        }
+    }
 }

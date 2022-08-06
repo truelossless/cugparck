@@ -5,7 +5,7 @@
 
 use std::{collections::HashMap, fs, path::Path};
 
-use crate::{load_tables_from_dir, Stealdows};
+use crate::{load_tables_from_dir, search_tables, Stealdows};
 
 use aes::{
     cipher::{generic_array::GenericArray, BlockDecrypt, BlockDecryptMut, KeyIvInit},
@@ -15,7 +15,6 @@ use anyhow::{ensure, Context, Result};
 use cbc::Decryptor;
 use comfy_table::{presets::UTF8_BORDERS_ONLY, Cell, Color, Table};
 use cugparck_commons::{Digest, Password};
-use cugparck_cpu::{CompressedTable, RainbowTable, RainbowTableStorage, SimpleTable, TableCluster};
 use des::Des;
 use md5::{Digest as _, Md5};
 use nt_hive::{Hive, KeyNode, NtHiveNameString};
@@ -400,7 +399,7 @@ fn dump_accounts(accounts: Vec<Account>) {
 
         let hash = account
             .hash
-            .map(|account| Cell::new(hex::encode(account)).fg(Color::Green))
+            .map(|hash| Cell::new(hex::encode(hash)).fg(Color::Green))
             .unwrap_or_else(|| Cell::new("No hash found").fg(Color::Grey));
 
         display_table.add_row(vec![username, hash]);
@@ -410,7 +409,9 @@ fn dump_accounts(accounts: Vec<Account>) {
 }
 
 /// Dumps the hashes of the specified accounts and tries to crack them.
-fn crack_accounts<T: RainbowTable>(accounts: Vec<Account>, table_cluster: TableCluster<T>) {
+fn crack_accounts(accounts: Vec<Account>, dir: &Path, low_memory: bool) -> Result<()> {
+    let (mmaps, is_compressed) = load_tables_from_dir(dir)?;
+
     let mut display_table = Table::new();
     display_table.load_preset(UTF8_BORDERS_ONLY);
     display_table.set_header(vec!["Username", "Hash", "Password"]);
@@ -423,7 +424,7 @@ fn crack_accounts<T: RainbowTable>(accounts: Vec<Account>, table_cluster: TableC
     );
 
     for (hash, password) in &mut passwords {
-        *password = table_cluster.search(*hash);
+        *password = search_tables(*hash, &mmaps, is_compressed, low_memory)?;
     }
 
     for account in accounts {
@@ -449,6 +450,8 @@ fn crack_accounts<T: RainbowTable>(accounts: Vec<Account>, table_cluster: TableC
     }
 
     println!("{display_table}");
+
+    Ok(())
 }
 
 pub fn stealdows(args: Stealdows) -> Result<()> {
@@ -464,7 +467,7 @@ pub fn stealdows(args: Stealdows) -> Result<()> {
         let mut system_try = None;
 
         for disk in sys.disks() {
-            let sam_path = disk.mount_point().join(SAM_PATH);
+            let sam_path = dbg!(disk.mount_point().join(SAM_PATH));
             let system_path = disk.mount_point().join(SYSTEM_PATH);
 
             if sam_path.exists() && system_path.exists() {
@@ -491,25 +494,7 @@ pub fn stealdows(args: Stealdows) -> Result<()> {
     }
 
     if let Some(dir) = args.crack {
-        let (mmaps, is_compressed) = load_tables_from_dir(&dir)?;
-
-        if is_compressed {
-            let tables = mmaps
-                .iter()
-                .map(|mmap| CompressedTable::load(mmap))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            let cluster = TableCluster::new(&tables);
-            crack_accounts(accounts, cluster);
-        } else {
-            let tables = mmaps
-                .iter()
-                .map(|mmap| SimpleTable::load(mmap))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            let cluster = TableCluster::new(&tables);
-            crack_accounts(accounts, cluster);
-        }
+        crack_accounts(accounts, &dir, args.low_memory)?;
     } else {
         dump_accounts(accounts);
     }

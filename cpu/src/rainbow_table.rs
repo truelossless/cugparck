@@ -35,7 +35,7 @@ type FileSerializer = CompositeSerializer<
 /// Trait that data structures implement to be used as rainbow tables.
 pub trait RainbowTable: Sized + Sync {
     /// The type of the iterator over the chains of the table.
-    type Iter<'a>: Iterator<Item = RainbowChain>
+    type Iter<'a>: Iterator<Item = RainbowChain> + Sync
     where
         Self: 'a;
 

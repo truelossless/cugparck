@@ -1,5 +1,9 @@
-[workspace]
+cargo-features = ["strip"]
 
+[profile.release]
+strip = true
+
+[workspace]
 members = [
     "cli",
     "commons",

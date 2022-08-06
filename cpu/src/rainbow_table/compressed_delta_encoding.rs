@@ -339,7 +339,7 @@ impl RainbowTable for ArchivedCompressedTable {
     }
 
     fn from_rainbow_table<T: RainbowTable>(_: T) -> Self {
-        panic!("Rainbow tables cannot be built from archived versions.")
+        panic!("Archived tables cannot be built from other tables")
     }
 }
 

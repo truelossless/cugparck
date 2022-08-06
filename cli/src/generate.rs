@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use cugparck_commons::DEFAULT_FILTER_COUNT;
 use cugparck_cpu::{
@@ -32,13 +34,13 @@ pub fn generate(args: Generate) -> Result<()> {
 
         println!("Generating table {i}");
 
-        let pb = ProgressBar::new(10_000);
-        pb.set_style(
+        let pb = ProgressBar::new(10_000).with_style(
             ProgressStyle::default_bar()
                 .template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.cyan/blue}]")
+                .unwrap()
                 .progress_chars("#>-"),
         );
-        pb.enable_steady_tick(100);
+        pb.enable_steady_tick(Duration::from_millis(100));
 
         while let Some(event) = table_handle.recv() {
             match event {

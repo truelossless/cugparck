@@ -150,7 +150,7 @@ pub type Digest = ArrayVec<[u8; MAX_DIGEST_LENGTH_ALLOWED]>;
 /// All the supported hash functions.
 #[cfg_attr(not(target_os = "cuda"), derive(Archive, Deserialize, Serialize))]
 #[cfg_attr(not(target_os = "cuda"), archive_attr(derive(CheckBytes)))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum HashType {
     Ntlm,
     Md4,

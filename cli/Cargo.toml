@@ -10,7 +10,7 @@ anyhow = "1.0.58"
 sysinfo = "0.24.7"
 hex = "0.4.3"
 clap = { version = "3.2.8", features = ["derive"] }
-indicatif = "0.16.2"
+indicatif = "0.17.0"
 crossterm = "0.24.0"
 comfy-table = "5.0.0"
 nt-hive = { git = "https://github.com/ColinFinck/nt-hive" }
