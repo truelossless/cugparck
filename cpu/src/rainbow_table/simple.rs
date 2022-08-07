@@ -81,8 +81,8 @@ impl SimpleTable {
         let mut unique_chains = IntMap::default();
 
         for columns in FiltrationIterator::new(ctx) {
-            partial_chains.extend(
-                unique_chains.drain().map(|(endpoint, startpoint)| {
+            partial_chains.par_extend(
+                unique_chains.par_drain().map(|(endpoint, startpoint)| {
                     RainbowChain::from_compressed(startpoint, endpoint)
                 }),
             );
@@ -100,9 +100,9 @@ impl SimpleTable {
                 sender.send(Event::Progress(progress)).unwrap();
             }
 
-            unique_chains.extend(
+            unique_chains.par_extend(
                 partial_chains
-                    .drain(..)
+                    .par_drain(..)
                     .map(|chain| (chain.endpoint, chain.startpoint)),
             );
         }
@@ -144,8 +144,8 @@ impl SimpleTable {
         let mut unique_chains = IntMap::default();
 
         for columns in FiltrationIterator::new(ctx) {
-            partial_chains.extend(
-                unique_chains.drain().map(|(endpoint, startpoint)| {
+            partial_chains.par_extend(
+                unique_chains.par_drain().map(|(endpoint, startpoint)| {
                     RainbowChain::from_compressed(startpoint, endpoint)
                 }),
             );
@@ -182,9 +182,9 @@ impl SimpleTable {
                 let mut batch_chains = d_batch_chains.as_host_vec()?;
                 batch_chains.truncate(batch.range.len());
 
-                unique_chains.extend(
+                unique_chains.par_extend(
                     batch_chains
-                        .into_iter()
+                        .into_par_iter()
                         .map(|chain| (chain.endpoint, chain.startpoint)),
                 );
 
