@@ -36,7 +36,7 @@ pub fn generate(args: Generate) -> Result<()> {
             #[cfg(not(feature = "cuda"))]
             {
                 anyhow::bail!(
-                    "Cannot use the GPU as this binary has not been compiled with CUDA support.
+                    "Cannot use the GPU as this binary has not been compiled with CUDA support.\n\
                     Suggestion: If you want to use your CPU for the generation use the --cpu flag"
                 );
             }

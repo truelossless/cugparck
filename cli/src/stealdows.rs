@@ -14,10 +14,11 @@ use aes::{
 use anyhow::{ensure, Context, Result};
 use cbc::Decryptor;
 use comfy_table::{presets::UTF8_BORDERS_ONLY, Cell, Color, Table};
+use crossterm::style::{Color as CrosstermColor, Stylize};
 use cugparck_commons::{Digest, Password};
 use des::Des;
 use md5::{Digest as _, Md5};
-use nt_hive::{Hive, KeyNode, NtHiveNameString};
+use nt_hive::{Hive, KeyNode, NtHiveError, NtHiveNameString};
 use rc4::{KeyInit, Rc4, StreamCipher};
 use sysinfo::{DiskExt, RefreshKind, System, SystemExt};
 
@@ -344,11 +345,31 @@ fn parse_rid(unordered_rid: &str) -> [u8; 4] {
 /// Returns a vec of the accounts and their hashes present in the given SAM file.
 fn decrypt_accounts(sam: &Path, system: &Path) -> Result<Vec<Account>> {
     let sam = fs::read(sam).context("Unable to read the SAM file")?;
-    let sam_hive = Hive::new(sam.as_ref())?;
-    let sam_root = sam_hive.root_key_node()?;
-
     let system = fs::read(system).context("Unable to read the SYSTEM file")?;
-    let system_hive = Hive::new(system.as_ref())?;
+
+    // If the Windows partition is in fast-startup mode, the hive will be considered "dirty".
+    // We can still extract the hashes, but we need to ignore the header verifications.
+    let (system_hive, sam_hive) = match Hive::new(system.as_ref()) {
+        Ok(system_hive) => (system_hive, Hive::new(sam.as_ref())?),
+
+        Err(NtHiveError::SequenceNumberMismatch { primary, secondary })
+            if primary == secondary + 1 =>
+        {
+            println!(
+                "{}",
+                "The Windows partition is using fast-startup, disabling header verification"
+                    .with(CrosstermColor::Yellow)
+            );
+            (
+                Hive::without_validation(system.as_ref())?,
+                Hive::without_validation(sam.as_ref())?,
+            )
+        }
+
+        Err(e) => return Err(e.into()),
+    };
+
+    let sam_root = sam_hive.root_key_node()?;
     let system_root = system_hive.root_key_node()?;
 
     let f = key_value(&sam_root, "SAM\\Domains\\Account", "F")?;
@@ -479,7 +500,7 @@ pub fn stealdows(args: Stealdows) -> Result<()> {
 
         ensure!(
             sam_try.is_some(),
-            "Unable to automatically find the SAM and SYSTEM files. Is the Windows partition correctly mounted?
+            "Unable to automatically find the SAM and SYSTEM files. Is the Windows partition correctly mounted?\n\
             Suggestion: Try to specify the two files manually with the --sam and --system flags"
         );
 
