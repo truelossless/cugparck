@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use cugparck_commons::DEFAULT_FILTER_COUNT;
 use cugparck_cpu::{
     CompressedTable, Event, RainbowTable, RainbowTableCtxBuilder, RainbowTableStorage, SimpleTable,
 };
@@ -45,10 +44,6 @@ pub fn generate(args: Generate) -> Result<()> {
         while let Some(event) = table_handle.recv() {
             match event {
                 Event::Progress(progress) => pb.set_position((progress * 100.) as u64),
-                Event::Filtration(i) => pb.set_message(format!(
-                    "Running filtration {i}/{}",
-                    DEFAULT_FILTER_COUNT + 1
-                )),
                 Event::GpuBatch {
                     batch_number,
                     batch_count,

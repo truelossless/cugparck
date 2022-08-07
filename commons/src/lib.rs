@@ -106,8 +106,11 @@ impl Debug for Password {
 /// are not equal if their inner usize is equal.
 #[repr(transparent)]
 #[cfg_attr(not(target_os = "cuda"), derive(Archive, Deserialize, Serialize))]
-#[cfg_attr(not(target_os = "cuda"), archive_attr(derive(CheckBytes)))]
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(
+    not(target_os = "cuda"),
+    archive_attr(derive(CheckBytes, PartialEq, Eq, Hash, Clone, Copy))
+)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CompressedPassword(usize);
 
 impl CompressedPassword {
@@ -131,6 +134,23 @@ impl From<usize> for CompressedPassword {
         CompressedPassword(password)
     }
 }
+
+#[cfg(not(target_os = "cuda"))]
+impl From<ArchivedCompressedPassword> for CompressedPassword {
+    fn from(ar: ArchivedCompressedPassword) -> Self {
+        CompressedPassword(ar.0 as usize)
+    }
+}
+
+#[cfg(not(target_os = "cuda"))]
+impl From<CompressedPassword> for ArchivedCompressedPassword {
+    fn from(password: CompressedPassword) -> Self {
+        ArchivedCompressedPassword(password.0 as u64)
+    }
+}
+
+#[cfg(not(target_os = "cuda"))]
+impl nohash_hasher::IsEnabled for CompressedPassword {}
 
 /// Converts a character from a charset to its ASCII representation.
 #[inline]
@@ -237,7 +257,7 @@ unsafe impl DeviceCopy for RainbowTableCtx {}
 #[repr(C)]
 #[cfg_attr(not(target_os = "cuda"), derive(Archive, Deserialize, Serialize))]
 #[cfg_attr(not(target_os = "cuda"), archive_attr(derive(CheckBytes)))]
-#[derive(Clone, Copy, Default, Debug, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct RainbowChain {
     pub startpoint: CompressedPassword,
     pub endpoint: CompressedPassword,
@@ -282,6 +302,19 @@ impl RainbowChain {
             self.startpoint.into_password(ctx),
             self.endpoint.into_password(ctx)
         )
+    }
+}
+
+#[cfg(not(target_os = "cuda"))]
+impl ArchivedRainbowChain {
+    pub fn from_compressed(
+        startpoint: CompressedPassword,
+        endpoint: CompressedPassword,
+    ) -> ArchivedRainbowChain {
+        ArchivedRainbowChain {
+            startpoint: ArchivedCompressedPassword(startpoint.0 as u64),
+            endpoint: ArchivedCompressedPassword(endpoint.0 as u64),
+        }
     }
 }
 
