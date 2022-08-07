@@ -1,8 +1,7 @@
-use std::{mem::size_of, ops::Range};
+use std::ops::Range;
 
-use cugparck_commons::RainbowChain;
 use cust::device::Device;
-use cust::function::Function;
+use cust::function::{Function, FunctionAttribute};
 
 use crate::error::CugparckResult;
 
@@ -35,15 +34,7 @@ impl BatchIterator {
         let device_memory = device.total_memory().unwrap() - 50_000;
 
         // estimate of the memory used by one thread running the kernel
-
-        // The "official" estimate is very conservative.
-        // When using it, only 20% of the device memory is used.
-        // So it seems that the memory usage is heavely optimized inside the GPU.
-        // let kernel_mem = kernel.get_attribute(FunctionAttribute::LocalSizeBytes)? as usize;
-
-        // this estimation is much more aggressive and results in a 50% memory usage on my GPU.
-        // It allows 10x less batches than the conservative estimation.
-        let kernel_mem = size_of::<RainbowChain>();
+        let kernel_mem = kernel.get_attribute(FunctionAttribute::LocalSizeBytes)? as usize;
 
         let kernels_per_batch = device_memory / kernel_mem;
 

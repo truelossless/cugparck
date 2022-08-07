@@ -165,7 +165,7 @@ pub struct Generate {
     #[clap(short = 'f', long, value_parser = value_parser!(u8).range(1..), default_value_t = 1)]
     start_from: u8,
 
-    /// Optimizes the storage of the rainbow table(s) using compressed delta encoding.
+    /// Optimize the storage of the rainbow table(s) using compressed delta encoding.
     /// Compressed tables are slower to search.
     #[clap(long, value_parser)]
     compress: bool,
