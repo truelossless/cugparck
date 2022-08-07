@@ -116,7 +116,7 @@ impl SimpleTable {
             );
         }
 
-        partial_chains.shrink_to_fit();
+        unique_chains.shrink_to_fit();
         Ok(Self {
             chains: unique_chains,
             ctx,
@@ -211,6 +211,7 @@ impl SimpleTable {
             partial_chains.clear();
         }
 
+        unique_chains.shrink_to_fit();
         Ok(Self {
             chains: unique_chains,
             ctx,
