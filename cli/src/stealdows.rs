@@ -467,7 +467,7 @@ pub fn stealdows(args: Stealdows) -> Result<()> {
         let mut system_try = None;
 
         for disk in sys.disks() {
-            let sam_path = dbg!(disk.mount_point().join(SAM_PATH));
+            let sam_path = disk.mount_point().join(SAM_PATH);
             let system_path = disk.mount_point().join(SYSTEM_PATH);
 
             if sam_path.exists() && system_path.exists() {

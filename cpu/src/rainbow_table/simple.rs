@@ -1,4 +1,4 @@
-use std::thread;
+use std::{collections::hash_map::Iter, thread};
 
 use crate::{
     batch::BatchIterator,
@@ -7,9 +7,12 @@ use crate::{
 };
 use bytecheck::CheckBytes;
 use crossbeam_channel::{unbounded, Sender};
-use cugparck_commons::{CompressedPassword, RainbowChain, RainbowTableCtx};
+use cugparck_commons::{
+    ArchivedCompressedPassword, CompressedPassword, RainbowChain, RainbowTableCtx,
+};
+use nohash_hasher::IntMap;
 use rayon::prelude::*;
-use rkyv::{Archive, Deserialize, Infallible, Serialize};
+use rkyv::{collections::hash_map::Iter as RkyvIter, Archive, Deserialize, Infallible, Serialize};
 
 use cust::{
     context::Context,
@@ -29,7 +32,7 @@ use crate::error::CugparckResult;
 #[archive_attr(derive(CheckBytes))]
 pub struct SimpleTable {
     /// The chains of the table.
-    chains: Vec<RainbowChain>,
+    chains: IntMap<CompressedPassword, CompressedPassword>,
     /// The context.
     ctx: RainbowTableCtx,
 }
@@ -38,7 +41,14 @@ impl SimpleTable {
     /// Creates a new simple rainbow table.
     /// The chains must be made of valid startpoints and endpoints.
     pub fn new(chains: Vec<RainbowChain>, ctx: RainbowTableCtx) -> Self {
-        Self { chains, ctx }
+        Self {
+            chains: IntMap::from_iter(
+                chains
+                    .into_iter()
+                    .map(|chain| (chain.endpoint, chain.startpoint)),
+            ),
+            ctx,
+        }
     }
 
     // Returns the startpoints in a vec.
@@ -68,8 +78,15 @@ impl SimpleTable {
 
     fn new_cpu(ctx: RainbowTableCtx, sender: Option<Sender<Event>>) -> CugparckResult<Self> {
         let mut partial_chains = Self::startpoints(&ctx);
+        let mut unique_chains = IntMap::default();
 
-        for (filtration_number, columns) in FiltrationIterator::new(ctx).enumerate() {
+        for columns in FiltrationIterator::new(ctx) {
+            partial_chains.extend(
+                unique_chains.drain().map(|(endpoint, startpoint)| {
+                    RainbowChain::from_compressed(startpoint, endpoint)
+                }),
+            );
+
             if let Some(sender) = &sender {
                 sender.send(Event::Cpu(columns.clone())).unwrap();
             }
@@ -81,18 +98,18 @@ impl SimpleTable {
             if let Some(sender) = &sender {
                 let progress = columns.end as f64 / ctx.t as f64 * 100.;
                 sender.send(Event::Progress(progress)).unwrap();
-                sender
-                    .send(Event::Filtration(filtration_number + 1))
-                    .unwrap();
             }
 
-            partial_chains.par_sort_unstable_by_key(|chain| chain.endpoint);
-            partial_chains.dedup_by_key(|chain| chain.endpoint);
+            unique_chains.extend(
+                partial_chains
+                    .drain(..)
+                    .map(|chain| (chain.endpoint, chain.startpoint)),
+            );
         }
 
         partial_chains.shrink_to_fit();
         Ok(Self {
-            chains: partial_chains,
+            chains: unique_chains,
             ctx,
         })
     }
@@ -124,8 +141,15 @@ impl SimpleTable {
         let chains_kernel = module.get_function("chains_kernel")?;
 
         let mut partial_chains = Self::startpoints(&ctx);
+        let mut unique_chains = IntMap::default();
 
-        for (filtration_number, columns) in FiltrationIterator::new(ctx).enumerate() {
+        for columns in FiltrationIterator::new(ctx) {
+            partial_chains.extend(
+                unique_chains.drain().map(|(endpoint, startpoint)| {
+                    RainbowChain::from_compressed(startpoint, endpoint)
+                }),
+            );
+
             for (batch_number, batch) in
                 BatchIterator::new(partial_chains.len(), &device, &chains_kernel)?.enumerate()
             {
@@ -158,7 +182,11 @@ impl SimpleTable {
                 let mut batch_chains = d_batch_chains.as_host_vec()?;
                 batch_chains.truncate(batch.range.len());
 
-                partial_chains.splice(batch.range, batch_chains);
+                unique_chains.extend(
+                    batch_chains
+                        .into_iter()
+                        .map(|chain| (chain.endpoint, chain.startpoint)),
+                );
 
                 if let Some(sender) = &sender {
                     let batch_percent = batch_number as f64 / batch.count as f64;
@@ -170,19 +198,11 @@ impl SimpleTable {
                 }
             }
 
-            if let Some(sender) = &sender {
-                sender
-                    .send(Event::Filtration(filtration_number + 1))
-                    .unwrap();
-            }
-
-            partial_chains.par_sort_unstable_by_key(|chain| chain.endpoint);
-            partial_chains.dedup_by_key(|chain| chain.endpoint);
+            partial_chains.clear();
         }
 
-        partial_chains.shrink_to_fit();
         Ok(Self {
-            chains: partial_chains,
+            chains: unique_chains,
             ctx,
         })
     }
@@ -199,14 +219,8 @@ impl RainbowTable for SimpleTable {
         self.into_iter()
     }
 
-    fn startpoint(&self, i: usize) -> CompressedPassword {
-        self.chains[i].startpoint
-    }
-
-    fn search_endpoints(&self, password: CompressedPassword) -> Option<usize> {
-        self.chains
-            .binary_search_by_key(&password, |chain| chain.endpoint)
-            .ok()
+    fn search_endpoints(&self, password: CompressedPassword) -> Option<CompressedPassword> {
+        self.chains.get(&password).copied()
     }
 
     fn ctx(&self) -> RainbowTableCtx {
@@ -216,7 +230,10 @@ impl RainbowTable for SimpleTable {
     fn from_rainbow_table<T: RainbowTable>(table: T) -> Self {
         Self {
             ctx: table.ctx(),
-            chains: table.iter().collect(),
+            chains: table
+                .iter()
+                .map(|chain| (chain.endpoint, chain.startpoint))
+                .collect(),
         }
     }
 }
@@ -232,19 +249,10 @@ impl RainbowTable for ArchivedSimpleTable {
         self.into_iter()
     }
 
-    fn startpoint(&self, i: usize) -> CompressedPassword {
-        self.chains[i]
-            .startpoint
-            .deserialize(&mut Infallible)
-            .unwrap()
-    }
-
-    fn search_endpoints(&self, password: CompressedPassword) -> Option<usize> {
+    fn search_endpoints(&self, password: CompressedPassword) -> Option<CompressedPassword> {
         self.chains
-            .binary_search_by_key(&password, |chain| {
-                chain.endpoint.deserialize(&mut Infallible).unwrap()
-            })
-            .ok()
+            .get(&password.into())
+            .map(|ar| ar.deserialize(&mut Infallible).unwrap())
     }
 
     fn ctx(&self) -> RainbowTableCtx {
@@ -258,7 +266,7 @@ impl RainbowTable for ArchivedSimpleTable {
 
 impl<'a> IntoIterator for &'a SimpleTable {
     type Item = RainbowChain;
-    type IntoIter = SimpleTableIterator<'a>;
+    type IntoIter = <SimpleTable as RainbowTable>::Iter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         Self::IntoIter::new(self)
@@ -267,7 +275,7 @@ impl<'a> IntoIterator for &'a SimpleTable {
 
 impl<'a> IntoIterator for &'a ArchivedSimpleTable {
     type Item = RainbowChain;
-    type IntoIter = ArchivedSimpleTableIterator<'a>;
+    type IntoIter = <ArchivedSimpleTable as RainbowTable>::Iter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         Self::IntoIter::new(self)
@@ -275,24 +283,26 @@ impl<'a> IntoIterator for &'a ArchivedSimpleTable {
 }
 
 pub struct SimpleTableIterator<'a> {
-    table: &'a SimpleTable,
-    i: usize,
+    inner: Iter<'a, CompressedPassword, CompressedPassword>,
 }
 
 pub struct ArchivedSimpleTableIterator<'a> {
-    table: &'a ArchivedSimpleTable,
-    i: usize,
+    inner: RkyvIter<'a, ArchivedCompressedPassword, ArchivedCompressedPassword>,
 }
 
 impl<'a> SimpleTableIterator<'a> {
     pub fn new(table: &'a SimpleTable) -> Self {
-        Self { table, i: 0 }
+        Self {
+            inner: table.chains.iter(),
+        }
     }
 }
 
 impl<'a> ArchivedSimpleTableIterator<'a> {
     pub fn new(table: &'a ArchivedSimpleTable) -> Self {
-        Self { table, i: 0 }
+        Self {
+            inner: table.chains.iter(),
+        }
     }
 }
 
@@ -300,14 +310,9 @@ impl Iterator for SimpleTableIterator<'_> {
     type Item = RainbowChain;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.i >= self.table.chains.len() {
-            return None;
-        }
-
-        let ret = Some(self.table.chains[self.i]);
-        self.i += 1;
-
-        ret
+        self.inner
+            .next()
+            .map(|(endpoint, startpoint)| RainbowChain::from_compressed(*startpoint, *endpoint))
     }
 }
 
@@ -315,18 +320,9 @@ impl Iterator for ArchivedSimpleTableIterator<'_> {
     type Item = RainbowChain;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.i >= self.table.chains.len() {
-            return None;
-        }
-
-        let ret = Some(
-            self.table.chains[self.i]
-                .deserialize(&mut Infallible)
-                .unwrap(),
-        );
-        self.i += 1;
-
-        ret
+        self.inner.next().map(|(endpoint, startpoint)| {
+            RainbowChain::from_compressed((*startpoint).into(), (*endpoint).into())
+        })
     }
 }
 
@@ -334,14 +330,10 @@ impl RainbowTableStorage for SimpleTable {}
 
 impl std::fmt::Debug for SimpleTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let chains_num = self.chains.len().min(10);
-        let some_chains = &self.chains[..chains_num];
+        let chains_count = self.chains.len().min(10);
+        let some_chains = self.chains.iter().take(chains_count);
 
-        for RainbowChain {
-            startpoint,
-            endpoint,
-        } in some_chains
-        {
+        for (endpoint, startpoint) in some_chains {
             writeln!(
                 f,
                 "{} -> {}",

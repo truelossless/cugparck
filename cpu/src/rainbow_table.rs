@@ -35,7 +35,7 @@ type FileSerializer = CompositeSerializer<
 /// Trait that data structures implement to be used as rainbow tables.
 pub trait RainbowTable: Sized + Sync {
     /// The type of the iterator over the chains of the table.
-    type Iter<'a>: Iterator<Item = RainbowChain> + Sync
+    type Iter<'a>: Iterator<Item = RainbowChain>
     where
         Self: 'a;
 
@@ -48,14 +48,12 @@ pub trait RainbowTable: Sized + Sync {
     }
 
     /// Returns an iterator over the chains of the table.
+    /// The chains are not expected to be returned in a particular order.
     fn iter(&self) -> Self::Iter<'_>;
 
-    /// Returns the startpoint at the given index.
-    fn startpoint(&self, i: usize) -> CompressedPassword;
-
     /// Searches the endpoints for a password.
-    /// Returns the chain number if the password was found in the endpoints.
-    fn search_endpoints(&self, password: CompressedPassword) -> Option<usize>;
+    /// Returns startpoint of the chain if the password was found in the endpoints.
+    fn search_endpoints(&self, password: CompressedPassword) -> Option<CompressedPassword>;
 
     /// Searches for a password in a given column.
     #[inline]
@@ -75,7 +73,7 @@ pub trait RainbowTable: Sized + Sync {
             .search_endpoints(CompressedPassword::from_password(column_plaintext, &ctx))
         {
             None => return None,
-            Some(found) => self.startpoint(found).into_password(&ctx),
+            Some(found) => found.into_password(&ctx),
         };
         let mut chain_digest;
 

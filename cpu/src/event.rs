@@ -8,8 +8,6 @@ use crate::{error::CugparckResult, SimpleTable};
 pub enum Event {
     /// Overall progress of the rainbow table generation in percent.
     Progress(f64),
-    /// The nth filtration is happening.
-    Filtration(usize),
     /// The nth batch of chains is being computed on the GPU.
     GpuBatch {
         batch_number: usize,

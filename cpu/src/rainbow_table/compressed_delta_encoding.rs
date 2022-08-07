@@ -4,6 +4,7 @@ use bitvec::prelude::*;
 use bytecheck::CheckBytes;
 use cugparck_commons::{CompressedPassword, RainbowChain, RainbowTableCtx};
 use itertools::{Itertools, PeekingNext};
+use rayon::prelude::*;
 use rkyv::{Archive, Deserialize, Infallible, Serialize};
 
 use super::{RainbowTable, RainbowTableStorage};
@@ -161,6 +162,15 @@ impl CompressedTable {
         k as f64 + 1. / (1. - frac)
     }
 
+    /// Returns the startpoint at the given index.
+    #[inline]
+    fn startpoint(&self, i: usize) -> CompressedPassword {
+        let password_bits = self.password_bits as usize;
+        self.startpoints[i * password_bits..(i + 1) * password_bits]
+            .load::<usize>()
+            .into()
+    }
+
     /// Stores a new block of endpoints in the table.
     /// The corresponding startpoints are also stored at the same time.
     /// Returns the number of the first chain to be stored in the next block.
@@ -214,6 +224,15 @@ impl ArchivedCompressedTable {
 
         (s * m + x, &input[s + k as usize + 1..])
     }
+
+    /// Returns the startpoint at the given index.
+    #[inline]
+    fn startpoint(&self, i: usize) -> CompressedPassword {
+        let password_bits = self.password_bits as usize;
+        self.startpoints[i * password_bits..(i + 1) * password_bits]
+            .load::<usize>()
+            .into()
+    }
 }
 
 impl<'a> IntoIterator for &'a CompressedTable {
@@ -246,20 +265,20 @@ impl RainbowTable for CompressedTable {
     }
 
     #[inline]
-    fn startpoint(&self, i: usize) -> CompressedPassword {
+    fn search_endpoints(&self, password: CompressedPassword) -> Option<CompressedPassword> {
         let password_bits = self.password_bits as usize;
-        self.startpoints[i * password_bits..(i + 1) * password_bits]
-            .load::<usize>()
-            .into()
-    }
-
-    fn search_endpoints(&self, password: CompressedPassword) -> Option<usize> {
         let block_number = CompressedTable::password_block(password, self.l, self.ctx.n);
         let (_, chain_start) = self.index.get_entry(block_number).unwrap();
 
-        CompressedTableEndpointIterator::from_block(self, block_number)?
+        let starpoint_index = CompressedTableEndpointIterator::from_block(self, block_number)?
             .position(|endpoint| endpoint == password)
-            .map(|pos| chain_start + pos)
+            .map(|pos| chain_start + pos);
+
+        starpoint_index.map(|i| {
+            self.startpoints[i * password_bits..(i + 1) * password_bits]
+                .load::<usize>()
+                .into()
+        })
     }
 
     fn ctx(&self) -> RainbowTableCtx {
@@ -286,8 +305,12 @@ impl RainbowTable for CompressedTable {
             startpoints,
             endpoints: BitVec::new(),
         };
+
+        let mut chains = table.iter().collect_vec();
+        chains.par_sort_unstable_by_key(|chain| chain.endpoint);
+        let mut chains_iter = chains.into_iter().peekable();
+
         let mut bit_address = 0;
-        let mut chains_iter = table.iter().peekable();
         let mut chain_start = 0;
 
         // store the chains
@@ -316,22 +339,22 @@ impl RainbowTable for ArchivedCompressedTable {
         self.into_iter()
     }
 
-    #[inline]
-    fn startpoint(&self, i: usize) -> CompressedPassword {
+    fn search_endpoints(&self, password: CompressedPassword) -> Option<CompressedPassword> {
         let password_bits = self.password_bits as usize;
-        self.startpoints[i * password_bits..(i + 1) * password_bits]
-            .load::<usize>()
-            .into()
-    }
-
-    fn search_endpoints(&self, password: CompressedPassword) -> Option<usize> {
         let block_number =
             CompressedTable::password_block(password, self.l as usize, self.ctx.n as usize);
         let (_, chain_start) = self.index.get_entry(block_number).unwrap();
 
-        ArchivedCompressedTableEndpointIterator::from_block(self, block_number)?
-            .position(|endpoint| endpoint == password)
-            .map(|pos| chain_start + pos)
+        let starpoint_index =
+            ArchivedCompressedTableEndpointIterator::from_block(self, block_number)?
+                .position(|endpoint| endpoint == password)
+                .map(|pos| chain_start + pos);
+
+        starpoint_index.map(|i| {
+            self.startpoints[i * password_bits..(i + 1) * password_bits]
+                .load::<usize>()
+                .into()
+        })
     }
 
     fn ctx(&self) -> RainbowTableCtx {
@@ -798,7 +821,7 @@ mod tests {
         let chain = table.into_iter().nth(CHAIN_NUMBER).unwrap();
 
         let search = table.search_endpoints(chain.endpoint);
-        assert_eq!(Some(CHAIN_NUMBER), search);
+        assert_eq!(Some(chain.startpoint), search);
     }
 
     #[test]
