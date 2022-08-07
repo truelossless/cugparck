@@ -28,7 +28,18 @@ pub fn generate(args: Generate) -> Result<()> {
         let table_handle = if args.cpu {
             SimpleTable::new_cpu_nonblocking(ctx)
         } else {
-            SimpleTable::new_gpu_nonblocking(ctx)
+            #[cfg(feature = "cuda")]
+            {
+                SimpleTable::new_gpu_nonblocking(ctx)
+            }
+
+            #[cfg(not(feature = "cuda"))]
+            {
+                anyhow::bail!(
+                    "Cannot use the GPU as this binary has not been compiled with CUDA support.
+                    Suggestion: If you want to use your CPU for the generation use the --cpu flag"
+                );
+            }
         };
 
         println!("Generating table {i}");

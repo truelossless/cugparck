@@ -9,7 +9,7 @@ thiserror = "1.0.24"
 bytecheck = "0.6.8"
 rkyv = { version = "0.7.39", default-features = false, features = ["alloc", "std", "validation", "size_64", "tinyvec", "copy_unsafe"] }
 memmap2 = "0.5.5"
-cust = "0.3.2"
+cust = { version = "0.3.2", optional = true }
 bitvec = "1.0.0"
 rayon = "1.5.3"
 crossbeam-channel = "0.5.5"
@@ -17,5 +17,7 @@ itertools = "0.10.3"
 nohash-hasher = "0.2.0"
 
 [build-dependencies]
-cuda_builder = "0.3.0"
-cc = "1.0.72"
+cuda_builder = { version = "0.3.0", optional = true }
+
+[features]
+cuda = ["cust", "cuda_builder"]

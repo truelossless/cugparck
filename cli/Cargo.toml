@@ -19,3 +19,6 @@ rc4 = "0.1.0"
 des = "0.8.1"
 aes = "0.8.1"
 cbc = "0.1.2"
+
+[features]
+cuda = ["cugparck-cpu/cuda"]

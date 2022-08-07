@@ -5,9 +5,8 @@ use std::{
 };
 
 use crate::{
-    batch::BatchIterator,
     event::{Event, SimpleTableHandle},
-    FiltrationIterator, PTX,
+    FiltrationIterator,
 };
 use bytecheck::CheckBytes;
 use crossbeam_channel::{unbounded, Sender};
@@ -18,14 +17,19 @@ use nohash_hasher::IntMap;
 use rayon::prelude::*;
 use rkyv::{collections::hash_map::Iter as RkyvIter, Archive, Deserialize, Infallible, Serialize};
 
-use cust::{
-    context::Context,
-    device::Device,
-    launch,
-    memory::DeviceBuffer,
-    module::Module,
-    prelude::{Stream, StreamFlags},
-    CudaFlags,
+#[cfg(feature = "cuda")]
+use {
+    crate::batch::BatchIterator,
+    crate::PTX,
+    cust::{
+        context::Context,
+        device::Device,
+        launch,
+        memory::DeviceBuffer,
+        module::Module,
+        prelude::{Stream, StreamFlags},
+        CudaFlags,
+    },
 };
 
 use super::{RainbowTable, RainbowTableStorage};
@@ -122,7 +126,10 @@ impl SimpleTable {
             ctx,
         })
     }
+}
 
+#[cfg(feature = "cuda")]
+impl SimpleTable {
     /// Creates a new simple rainbow table, using the GPU, asynchronously.
     /// Returns an handle to get events related to the generation and to get the generated table.
     pub fn new_gpu_nonblocking(ctx: RainbowTableCtx) -> SimpleTableHandle {

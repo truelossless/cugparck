@@ -477,7 +477,11 @@ pub fn stealdows(args: Stealdows) -> Result<()> {
             }
         }
 
-        ensure!(sam_try.is_some(), "Unable to automatically find the SAM and SYSTEM files. Is the Windows partition correctly mounted? \nSuggestion: Try to specify the two files manually with the --sam and --system flags");
+        ensure!(
+            sam_try.is_some(),
+            "Unable to automatically find the SAM and SYSTEM files. Is the Windows partition correctly mounted?
+            Suggestion: Try to specify the two files manually with the --sam and --system flags"
+        );
 
         sam = sam_try.unwrap();
         system = system_try.unwrap();

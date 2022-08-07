@@ -1,5 +1,6 @@
 #![feature(generic_associated_types)]
 
+#[cfg(feature = "cuda")]
 mod batch;
 mod bitvec_wrapper;
 mod error;
@@ -27,7 +28,8 @@ use cugparck_commons::{
 use error::CugparckResult;
 
 /// The CUDA PTX containing the GPU code.
-const PTX: &str = include_str!("../../resources/module.ptx");
+#[cfg(feature = "cuda")]
+const PTX: &str = include_str!("../../module.ptx");
 
 /// A builder for a rainbow table context.
 #[derive(Clone, Copy)]

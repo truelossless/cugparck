@@ -1,6 +1,5 @@
 use std::io;
 
-use cust::error::CudaError;
 use thiserror::Error;
 
 pub type CugparckResult<T> = std::result::Result<T, CugparckError>;
@@ -10,8 +9,9 @@ pub enum CugparckError {
     #[error("Failed to validate the rainbow table. Is the file corrupted?")]
     Check,
 
+    #[cfg(feature = "cuda")]
     #[error("A CUDA-related error occured")]
-    Cuda(#[from] CudaError),
+    Cuda(#[from] cust::error::CudaError),
 
     #[error(
         "Unable to access the file at the given path. Make sure the right permissions are available"
