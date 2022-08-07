@@ -1,4 +1,8 @@
-use std::{collections::hash_map::Iter, thread};
+use std::{
+    collections::{hash_map::Iter, HashMap},
+    hash::BuildHasherDefault,
+    thread,
+};
 
 use crate::{
     batch::BatchIterator,
@@ -53,10 +57,14 @@ impl SimpleTable {
 
     // Returns the startpoints in a vec.
     fn startpoints(ctx: &RainbowTableCtx) -> Vec<RainbowChain> {
+        let mut vec = Vec::new();
+
         (0..ctx.m0)
             .into_par_iter()
             .map(|i| RainbowChain::from_compressed(i.into(), i.into()))
-            .collect::<Vec<_>>()
+            .collect_into_vec(&mut vec);
+
+        vec
     }
 
     /// Creates a new simple rainbow table, using the CPU, asynchronously.
@@ -78,7 +86,8 @@ impl SimpleTable {
 
     fn new_cpu(ctx: RainbowTableCtx, sender: Option<Sender<Event>>) -> CugparckResult<Self> {
         let mut partial_chains = Self::startpoints(&ctx);
-        let mut unique_chains = IntMap::default();
+        let mut unique_chains: IntMap<CompressedPassword, CompressedPassword> =
+            HashMap::with_capacity_and_hasher(ctx.m0, BuildHasherDefault::default());
 
         for columns in FiltrationIterator::new(ctx) {
             partial_chains.par_extend(
@@ -141,7 +150,8 @@ impl SimpleTable {
         let chains_kernel = module.get_function("chains_kernel")?;
 
         let mut partial_chains = Self::startpoints(&ctx);
-        let mut unique_chains = IntMap::default();
+        let mut unique_chains: IntMap<CompressedPassword, CompressedPassword> =
+            HashMap::with_capacity_and_hasher(ctx.m0, BuildHasherDefault::default());
 
         for columns in FiltrationIterator::new(ctx) {
             partial_chains.par_extend(
