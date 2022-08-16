@@ -14,7 +14,7 @@ use aes::{
 use anyhow::{ensure, Context, Result};
 use cbc::Decryptor;
 use comfy_table::{presets::UTF8_BORDERS_ONLY, Cell, Color, Table};
-use crossterm::style::{Color as CrosstermColor, Stylize};
+use crossterm::style::Stylize;
 use cugparck_commons::{Digest, Password};
 use des::Des;
 use md5::{Digest as _, Md5};
@@ -358,7 +358,7 @@ fn decrypt_accounts(sam: &Path, system: &Path) -> Result<Vec<Account>> {
             println!(
                 "{}",
                 "The Windows partition is using fast-startup, disabling header verification"
-                    .with(CrosstermColor::Yellow)
+                    .with(Color::Yellow)
             );
             (
                 Hive::without_validation(system.as_ref())?,
@@ -512,10 +512,7 @@ pub fn stealdows(args: Stealdows) -> Result<()> {
         .context("Error when decrypting the SAM or the SYSTEM file")?;
 
     if !args.user.is_empty() {
-        accounts = accounts
-            .into_iter()
-            .filter(|account| args.user.contains(&account.username))
-            .collect();
+        accounts.retain(|account| args.user.contains(&account.username));
     }
 
     if let Some(dir) = args.crack {

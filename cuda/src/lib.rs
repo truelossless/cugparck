@@ -9,8 +9,6 @@
 use cuda_std::{kernel, thread::index_1d};
 use cugparck_commons::{RainbowChain, RainbowTableCtx};
 
-extern crate alloc;
-
 #[kernel]
 pub unsafe fn chains_kernel(
     col_start: usize,

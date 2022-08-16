@@ -288,7 +288,7 @@ fn load_tables_from_dir(dir: &Path) -> Result<(Vec<Mmap>, bool)> {
             continue;
         }
 
-        match file.path().extension().map(|s| s.to_str()).flatten() {
+        match file.path().extension().and_then(|s| s.to_str()) {
             Some("rt") => is_simple_tables = true,
             Some("rtcde") => is_compressed_tables = true,
             _ => continue,

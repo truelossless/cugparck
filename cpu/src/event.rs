@@ -8,14 +8,12 @@ use crate::{error::CugparckResult, SimpleTable};
 pub enum Event {
     /// Overall progress of the rainbow table generation in percent.
     Progress(f64),
-    /// The nth batch of chains is being computed on the GPU.
-    GpuBatch {
+    /// The nth batch of chains is being computed.
+    Batch {
         batch_number: usize,
         batch_count: usize,
         columns: Range<usize>,
     },
-    /// The chains are being computed on the CPU.
-    Cpu(Range<usize>),
 }
 
 pub struct SimpleTableHandle {

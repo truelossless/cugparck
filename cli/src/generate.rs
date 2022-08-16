@@ -2,7 +2,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use cugparck_cpu::{
-    CompressedTable, Event, RainbowTable, RainbowTableCtxBuilder, RainbowTableStorage, SimpleTable,
+    backend::CpuBackend, CompressedTable, Event, RainbowTable, RainbowTableCtxBuilder,
+    RainbowTableStorage, SimpleTable,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -26,17 +27,17 @@ pub fn generate(args: Generate) -> Result<()> {
         let table_path = args.dir.clone().join(format!("table_{i}.{ext}"));
 
         let table_handle = if args.cpu {
-            SimpleTable::new_cpu_nonblocking(ctx)
+            SimpleTable::new_nonblocking::<CpuBackend>(ctx)?
         } else {
             #[cfg(feature = "cuda")]
             {
-                SimpleTable::new_gpu_nonblocking(ctx)
+                SimpleTable::new_nonblocking::<cugparck_cpu::backend::CudaBackend>(ctx)?
             }
 
             #[cfg(not(feature = "cuda"))]
             {
                 anyhow::bail!(
-                    "Cannot use the GPU as this binary has not been compiled with CUDA support.\n\
+                    "Cannot use CUDA as this binary has not been compiled with CUDA support.\n\
                     Suggestion: If you want to use your CPU for the generation use the --cpu flag"
                 );
             }
@@ -55,14 +56,13 @@ pub fn generate(args: Generate) -> Result<()> {
         while let Some(event) = table_handle.recv() {
             match event {
                 Event::Progress(progress) => pb.set_position((progress * 100.) as u64),
-                Event::GpuBatch {
+                Event::Batch {
                     batch_number,
                     batch_count,
                     columns,
                 } => pb.set_message(format!(
                     "Running batch {batch_number}/{batch_count} of columns {columns:?}"
                 )),
-                Event::Cpu(columns) => pb.set_message(format!("Generating columns {columns:?}")),
             }
         }
 

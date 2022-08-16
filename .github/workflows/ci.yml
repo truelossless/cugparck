@@ -19,12 +19,12 @@ jobs:
       - name: Build executable with CUDA support
         run: |
           docker exec -w /root/rust-cuda builder cargo build --release --features cuda
-          docker exec -w /root/rust-cuda/target/release builder mv cugparck-cli cugparck-cli-linux-cuda
+          docker exec -w /root/rust-cuda/target/release builder cp cugparck-cli cugparck-cli-linux-cuda
 
       - name: Build executable without CUDA support
         run: |
           docker exec -w /root/rust-cuda builder cargo build --release
-          docker exec -w /root/rust-cuda/target/release builder mv cugparck-cli cugparck-cli-linux-no-cuda
+          docker exec -w /root/rust-cuda/target/release builder cp cugparck-cli cugparck-cli-linux-no-cuda
 
       - name: Run tests
         run: docker exec -w /root/rust-cuda builder cargo test --release --no-fail-fast
@@ -51,12 +51,12 @@ jobs:
       - name: Build executable with CUDA support
         run: |
           cargo build --release --features cuda
-          mv target/release/cugparck-cli.exe target/release/cugparck-cli-windows-cuda.exe
+          cp target/release/cugparck-cli.exe target/release/cugparck-cli-windows-cuda.exe
 
       - name: Build executable without CUDA support
         run: |
           cargo build --release
-          mv target/release/cugparck-cli.exe target/release/cugparck-cli-windows-no-cuda.exe
+          cp target/release/cugparck-cli.exe target/release/cugparck-cli-windows-no-cuda.exe
 
       - name: Run tests
         run: cargo test --release --no-fail-fast

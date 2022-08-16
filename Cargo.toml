@@ -2,13 +2,12 @@ cargo-features = ["strip"]
 
 [profile.release]
 strip = true
-codegen-units = 1
 lto = true
+codegen-units = 1
 
 [workspace]
 members = [
     "cli",
     "commons",
     "cpu",
-    "gpu",
 ]

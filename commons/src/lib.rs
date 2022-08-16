@@ -12,7 +12,6 @@ use core::{
     fmt::{Debug, Display},
     ops::{Deref, DerefMut, Range},
 };
-use cust_core::DeviceCopy;
 
 use md4::{Digest as _, Md4};
 use md5::Md5;
@@ -250,8 +249,9 @@ pub struct RainbowTableCtx {
     pub n: usize,
 }
 
-// SAFETY: No heap allocated members in the struct.
-unsafe impl DeviceCopy for RainbowTableCtx {}
+// SAFETY: No pointers in the struct.
+#[cfg(feature = "cuda")]
+unsafe impl cust_core::DeviceCopy for RainbowTableCtx {}
 
 /// A chain of the rainbow table, made of a startpoint and an endpoint.
 #[repr(C)]
@@ -318,8 +318,9 @@ impl ArchivedRainbowChain {
     }
 }
 
-// SAFETY: No references in the struct.
-unsafe impl DeviceCopy for RainbowChain {}
+// SAFETY: No pointers in the struct.
+#[cfg(feature = "cuda")]
+unsafe impl cust_core::DeviceCopy for RainbowChain {}
 
 /// Reduces a digest into a password.
 // Notice how we multiply the table number with the iteration instead of just adding it.
@@ -374,7 +375,7 @@ fn plaintext_to_counter(plaintext: Password, ctx: &RainbowTableCtx) -> usize {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use tinyvec::array_vec;
 
     use crate::{

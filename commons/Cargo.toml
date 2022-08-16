@@ -9,7 +9,7 @@ bytecheck = "0.6.8"
 rkyv = { version = "0.7.39", default-features = false, features = ["alloc", "std", "validation", "size_64", "tinyvec"] }
 
 [dependencies]
-cust_core = "0.1.1"
+cust_core = { version = "0.1.1", optional = true } 
 tinyvec = { version = "1.6.0", features = ["rustc_1_57"] }
 
 md4 = { version = "0.10.1", default-features = false }
@@ -18,6 +18,5 @@ sha-1 = { version = "0.10.0", default-features = false }
 sha2 = { version = "0.10.2", default-features = false }
 sha3 = { version = "0.10.1", default-features = false }
 
-[build-dependencies]
-cc = "1.0.72"
-
+[features]
+cuda = ["cust_core"]

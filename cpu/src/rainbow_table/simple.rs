@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::{
+    backend::Backend,
     event::{Event, SimpleTableHandle},
     FiltrationIterator,
 };
@@ -16,21 +17,6 @@ use cugparck_commons::{
 use nohash_hasher::IntMap;
 use rayon::prelude::*;
 use rkyv::{collections::hash_map::Iter as RkyvIter, Archive, Deserialize, Infallible, Serialize};
-
-#[cfg(feature = "cuda")]
-use {
-    crate::batch::BatchIterator,
-    crate::PTX,
-    cust::{
-        context::Context,
-        device::Device,
-        launch,
-        memory::DeviceBuffer,
-        module::Module,
-        prelude::{Stream, StreamFlags},
-        CudaFlags,
-    },
-};
 
 use super::{RainbowTable, RainbowTableStorage};
 use crate::error::CugparckResult;
@@ -46,9 +32,9 @@ pub struct SimpleTable {
 }
 
 impl SimpleTable {
-    /// Creates a new simple rainbow table.
+    /// Creates a new simple rainbow table from a Vec.
     /// The chains must be made of valid startpoints and endpoints.
-    pub fn new(chains: Vec<RainbowChain>, ctx: RainbowTableCtx) -> Self {
+    pub fn from_vec(chains: Vec<RainbowChain>, ctx: RainbowTableCtx) -> Self {
         Self {
             chains: IntMap::from_iter(
                 chains
@@ -71,90 +57,28 @@ impl SimpleTable {
         vec
     }
 
-    /// Creates a new simple rainbow table, using the CPU, asynchronously.
+    /// Creates a new simple rainbow table, asynchronously.
     /// Returns an handle to get events related to the generation and to get the generated table.
-    pub fn new_cpu_nonblocking(ctx: RainbowTableCtx) -> SimpleTableHandle {
+    pub fn new_nonblocking<T: Backend>(ctx: RainbowTableCtx) -> CugparckResult<SimpleTableHandle> {
         let (sender, receiver) = unbounded();
-        let thread_handle = thread::spawn(move || Self::new_cpu(ctx, Some(sender)));
+        let thread_handle = thread::spawn(move || Self::new::<T>(ctx, Some(sender)));
 
-        SimpleTableHandle {
+        Ok(SimpleTableHandle {
             thread_handle,
             receiver,
-        }
-    }
-
-    /// Creates a new simple rainbow table, using the CPU.
-    pub fn new_cpu_blocking(ctx: RainbowTableCtx) -> Self {
-        Self::new_cpu(ctx, None).unwrap()
-    }
-
-    fn new_cpu(ctx: RainbowTableCtx, sender: Option<Sender<Event>>) -> CugparckResult<Self> {
-        let mut partial_chains = Self::startpoints(&ctx);
-        let mut unique_chains: IntMap<CompressedPassword, CompressedPassword> =
-            HashMap::with_capacity_and_hasher(ctx.m0, BuildHasherDefault::default());
-
-        for columns in FiltrationIterator::new(ctx) {
-            partial_chains.par_extend(
-                unique_chains.par_drain().map(|(endpoint, startpoint)| {
-                    RainbowChain::from_compressed(startpoint, endpoint)
-                }),
-            );
-
-            if let Some(sender) = &sender {
-                sender.send(Event::Cpu(columns.clone())).unwrap();
-            }
-
-            partial_chains
-                .par_iter_mut()
-                .for_each(|partial_chain| partial_chain.continue_chain(columns.clone(), &ctx));
-
-            if let Some(sender) = &sender {
-                let progress = columns.end as f64 / ctx.t as f64 * 100.;
-                sender.send(Event::Progress(progress)).unwrap();
-            }
-
-            unique_chains.par_extend(
-                partial_chains
-                    .par_drain(..)
-                    .map(|chain| (chain.endpoint, chain.startpoint)),
-            );
-        }
-
-        unique_chains.shrink_to_fit();
-        Ok(Self {
-            chains: unique_chains,
-            ctx,
         })
     }
-}
 
-#[cfg(feature = "cuda")]
-impl SimpleTable {
-    /// Creates a new simple rainbow table, using the GPU, asynchronously.
-    /// Returns an handle to get events related to the generation and to get the generated table.
-    pub fn new_gpu_nonblocking(ctx: RainbowTableCtx) -> SimpleTableHandle {
-        let (sender, receiver) = unbounded();
-        let thread_handle = thread::spawn(move || Self::new_gpu(ctx, Some(sender)));
-
-        SimpleTableHandle {
-            thread_handle,
-            receiver,
-        }
+    /// Creates a new simple rainbow table.
+    pub fn new_blocking<T: Backend>(ctx: RainbowTableCtx) -> CugparckResult<Self> {
+        Self::new::<T>(ctx, None)
     }
 
-    /// Creates a new simple rainbow table, using the GPU.
-    pub fn new_gpu_blocking(ctx: RainbowTableCtx) -> CugparckResult<Self> {
-        Self::new_gpu(ctx, None)
-    }
-
-    /// Creates a new simple rainbow table, using the GPU.
-    fn new_gpu(ctx: RainbowTableCtx, sender: Option<Sender<Event>>) -> CugparckResult<Self> {
-        cust::init(CudaFlags::empty())?;
-        let device = Device::get_device(0)?;
-        let _cuda_ctx = Context::new(device);
-        let module = Module::from_ptx(PTX, &[])?;
-        let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
-        let chains_kernel = module.get_function("chains_kernel")?;
+    fn new<T: Backend>(
+        ctx: RainbowTableCtx,
+        sender: Option<Sender<Event>>,
+    ) -> CugparckResult<Self> {
+        let backend = T::new()?;
 
         let mut partial_chains = Self::startpoints(&ctx);
         let mut unique_chains: IntMap<CompressedPassword, CompressedPassword> =
@@ -167,37 +91,22 @@ impl SimpleTable {
                 }),
             );
 
-            for (batch_number, batch) in
-                BatchIterator::new(partial_chains.len(), &device, &chains_kernel)?.enumerate()
-            {
+            let batch_iter = backend.batch_iter(partial_chains.len())?.enumerate();
+            let batch_count = batch_iter.len();
+            for (batch_number, batch_info) in batch_iter {
                 if let Some(sender) = &sender {
                     sender
-                        .send(Event::GpuBatch {
+                        .send(Event::Batch {
                             batch_number: batch_number + 1,
-                            batch_count: batch.count,
+                            batch_count,
                             columns: columns.clone(),
                         })
                         .unwrap();
                 }
 
-                let d_batch_chains =
-                    DeviceBuffer::from_slice(&partial_chains[batch.range.clone()])?;
-
-                unsafe {
-                    launch!(
-                        chains_kernel<<<batch.block_count, batch.thread_count, 0, stream>>>(
-                            columns.start,
-                            columns.end,
-                            d_batch_chains.as_device_ptr(),
-                            d_batch_chains.len(),
-                            ctx,
-                        )
-                    )?
-                }
-                stream.synchronize()?;
-
-                let mut batch_chains = d_batch_chains.as_host_vec()?;
-                batch_chains.truncate(batch.range.len());
+                let batch_slice = backend.batch_slice(&mut partial_chains, &batch_info);
+                let batch_chains =
+                    backend.run_kernel(batch_slice, &batch_info, columns.clone(), ctx)?;
 
                 unique_chains.par_extend(
                     batch_chains
@@ -206,7 +115,7 @@ impl SimpleTable {
                 );
 
                 if let Some(sender) = &sender {
-                    let batch_percent = batch_number as f64 / batch.count as f64;
+                    let batch_percent = batch_number as f64 / batch_count as f64;
                     let current_col_progress = columns.len() as f64 * batch_percent;
                     let col_progress = columns.start as f64;
                     let progress = (col_progress + current_col_progress) / ctx.t as f64 * 100.;

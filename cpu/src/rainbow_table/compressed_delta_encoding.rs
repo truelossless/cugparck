@@ -583,6 +583,7 @@ impl RainbowTableStorage for CompressedTable {}
 #[cfg(test)]
 mod tests {
     use crate::{
+        backend::CpuBackend,
         rainbow_table::{
             compressed_delta_encoding::{CompressedTableEndpointIterator, Index},
             simple::SimpleTable,
@@ -610,7 +611,7 @@ mod tests {
             .collect_vec();
 
         (
-            SimpleTable::new(chains.clone(), ctx).into_rainbow_table(),
+            SimpleTable::from_vec(chains.clone(), ctx).into_rainbow_table(),
             chains,
         )
     }
@@ -712,7 +713,7 @@ mod tests {
             RainbowChain::new(Password::new(b"a"), Password::new(b"ccc"), &ctx),
         ];
 
-        let table: CompressedTable = SimpleTable::new(chains, ctx).into_rainbow_table();
+        let table: CompressedTable = SimpleTable::from_vec(chains, ctx).into_rainbow_table();
 
         // log2(m) = 3 bits for the address
         // "c" = 110 (Lsb0)
@@ -742,7 +743,7 @@ mod tests {
             RainbowChain::new(Password::new(b"a"), Password::new(b"baa"), &ctx),
         ];
 
-        let table: CompressedTable = SimpleTable::new(chains, ctx).into_rainbow_table();
+        let table: CompressedTable = SimpleTable::from_vec(chains, ctx).into_rainbow_table();
 
         // delta (minus one) between the endpoints:
         // 0, 2, 7, 1
@@ -833,7 +834,9 @@ mod tests {
             .build()
             .unwrap();
 
-        let table = SimpleTable::new_cpu_blocking(ctx).into_rainbow_table::<CompressedTable>();
+        let table = SimpleTable::new_blocking::<CpuBackend>(ctx)
+            .unwrap()
+            .into_rainbow_table::<CompressedTable>();
         let search = Password::new(b"abca");
 
         let found = table.search(hash(search, &ctx));
@@ -849,7 +852,9 @@ mod tests {
             .build()
             .unwrap();
 
-        let table: CompressedTable = SimpleTable::new_cpu_blocking(ctx).into_rainbow_table();
+        let table: CompressedTable = SimpleTable::new_blocking::<CpuBackend>(ctx)
+            .unwrap()
+            .into_rainbow_table();
 
         let mut found = 0;
         for i in 0..ctx.n {

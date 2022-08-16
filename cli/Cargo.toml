@@ -1,18 +1,18 @@
 [package]
 name = "cugparck-cli"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 
 [dependencies]
 cugparck-commons = { path = "../commons" }
 cugparck-cpu = { path = "../cpu" }
 anyhow = "1.0.58"
-sysinfo = "0.24.7"
+sysinfo = "0.25.2"
 hex = "0.4.3"
 clap = { version = "3.2.8", features = ["derive"] }
 indicatif = "0.17.0"
-crossterm = "0.24.0"
-comfy-table = "5.0.0"
+crossterm = "0.23.2"
+comfy-table = "6.0.0"
 nt-hive = { git = "https://github.com/ColinFinck/nt-hive" }
 md-5 = "0.10.1"
 rc4 = "0.1.0"
