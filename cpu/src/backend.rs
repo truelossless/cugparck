@@ -1,47 +1,96 @@
-//! The backend used to generate rainbow tables.
+//! The different backends that can be used to generate rainbow tables.
 
-mod cpu;
+use wgpu::Backends;
+
+use crate::{
+    error::CugparckResult,
+    renderer::{CpuRenderer, Renderer, WgpuRenderer},
+};
+
+/// A backend that can be used to generate rainbow tables.
+pub trait Backend {
+    /// The renderer that produces this backend.
+    type Renderer: Renderer;
+
+    /// Returns the renderer.
+    fn renderer() -> CugparckResult<Self::Renderer>;
+}
+
+/// A CUDA backend.
 #[cfg(feature = "cuda")]
-mod cuda;
-mod wgpu;
-
-pub use cpu::CpuBackend;
+pub struct Cuda;
 
 #[cfg(feature = "cuda")]
-pub use cuda::CudaBackend;
+impl Backend for Cuda {
+    type Renderer = renderer::CudaRenderer;
 
-use crate::error::CugparckResult;
-use cugparck_commons::{RainbowChain, RainbowTableCtx};
-use std::{borrow::Cow, ops::Range};
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new()
+    }
+}
 
-/// A trait that every backend must implement to generate a rainbow table.
-/// The device refers to the GPU or CPU that will be used.
-pub trait Backend: Sized {
-    /// The type of the batch iterator.
-    type BatchIterator: Iterator<Item = Self::BatchInfo> + ExactSizeIterator;
+/// A multithreaded CPU backend.
+pub struct Cpu;
 
-    // Information about a batch.
-    type BatchInfo;
+impl Backend for Cpu {
+    type Renderer = CpuRenderer;
 
-    /// Creates the backend.
-    fn new() -> CugparckResult<Self>;
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new()
+    }
+}
 
-    /// Returns an iterator over the batches needed.
-    fn batch_iter(&self, chains_len: usize) -> CugparckResult<Self::BatchIterator>;
+/// A Vulkan backend powered by wgpu.
+pub struct Vulkan;
 
-    /// Returns the slice that makes up this batch.
-    fn batch_slice<'a>(
-        &self,
-        chains: &'a mut [RainbowChain],
-        batch_info: &Self::BatchInfo,
-    ) -> &'a mut [RainbowChain];
+impl Backend for Vulkan {
+    type Renderer = WgpuRenderer;
 
-    /// Starts the computation on the device.
-    fn run_kernel<'a>(
-        &self,
-        batch: &'a mut [RainbowChain],
-        batch_info: &Self::BatchInfo,
-        columns: Range<usize>,
-        ctx: RainbowTableCtx,
-    ) -> CugparckResult<Cow<'a, [RainbowChain]>>;
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new(Backends::VULKAN)
+    }
+}
+
+/// A DirectX 12 backend powered by wgpu.
+pub struct Dx12;
+
+impl Backend for Dx12 {
+    type Renderer = WgpuRenderer;
+
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new(Backends::DX12)
+    }
+}
+
+/// A Metal backend powered by wgpu.
+pub struct Metal;
+
+impl Backend for Metal {
+    type Renderer = WgpuRenderer;
+
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new(Backends::METAL)
+    }
+}
+
+/// An OpenGL ES 3 backend powered by wgpu.
+pub struct OpenGL;
+
+impl Backend for OpenGL {
+    type Renderer = WgpuRenderer;
+
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new(Backends::GL)
+    }
+}
+
+/// A DirectX 11 backend powered by wgpu.
+pub struct Dx11;
+
+impl Backend for Dx11 {
+    type Renderer = WgpuRenderer;
+
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new(Backends::DX11)
+    }
 }

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use cugparck_cpu::{
-    backend::CpuBackend, CompressedTable, Event, RainbowTable, RainbowTableCtxBuilder,
+    backend::Cpu, CompressedTable, Event, RainbowTable, RainbowTableCtxBuilder,
     RainbowTableStorage, SimpleTable,
 };
 use indicatif::{ProgressBar, ProgressStyle};
@@ -27,11 +27,11 @@ pub fn generate(args: Generate) -> Result<()> {
         let table_path = args.dir.clone().join(format!("table_{i}.{ext}"));
 
         let table_handle = if args.cpu {
-            SimpleTable::new_nonblocking::<CpuBackend>(ctx)?
+            SimpleTable::new_nonblocking::<Cpu>(ctx)?
         } else {
             #[cfg(feature = "cuda")]
             {
-                SimpleTable::new_nonblocking::<cugparck_cpu::backend::CudaBackend>(ctx)?
+                SimpleTable::new_nonblocking::<cugparck_cpu::backend::Cuda>(ctx)?
             }
 
             #[cfg(not(feature = "cuda"))]

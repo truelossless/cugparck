@@ -1,4 +1,4 @@
-//! Multithreaded CPU backend.
+//! Multithreaded CPU renderer.
 
 use std::{
     borrow::Cow,
@@ -11,21 +11,23 @@ use rayon::prelude::*;
 
 use crate::error::CugparckResult;
 
-use super::Backend;
+use super::Renderer;
 
 pub struct BatchInfo {
     pub range: Range<usize>,
 }
 
-pub struct CpuBackend;
+pub struct CpuRenderer;
 
-impl Backend for CpuBackend {
+impl CpuRenderer {
+    pub fn new() -> CugparckResult<Self> {
+        Ok(CpuRenderer)
+    }
+}
+
+impl Renderer for CpuRenderer {
     type BatchIterator = Once<BatchInfo>;
     type BatchInfo = BatchInfo;
-
-    fn new() -> CugparckResult<Self> {
-        Ok(CpuBackend)
-    }
 
     fn batch_iter(&self, chains_len: usize) -> CugparckResult<Self::BatchIterator> {
         Ok(iter::once(BatchInfo {

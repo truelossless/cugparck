@@ -7,6 +7,7 @@ use std::{
 use crate::{
     backend::Backend,
     event::{Event, SimpleTableHandle},
+    renderer::Renderer,
     FiltrationIterator,
 };
 use bytecheck::CheckBytes;
@@ -78,7 +79,7 @@ impl SimpleTable {
         ctx: RainbowTableCtx,
         sender: Option<Sender<Event>>,
     ) -> CugparckResult<Self> {
-        let backend = T::new()?;
+        let renderer = T::renderer()?;
 
         let mut partial_chains = Self::startpoints(&ctx);
         let mut unique_chains: IntMap<CompressedPassword, CompressedPassword> =
@@ -91,7 +92,7 @@ impl SimpleTable {
                 }),
             );
 
-            let batch_iter = backend.batch_iter(partial_chains.len())?.enumerate();
+            let batch_iter = renderer.batch_iter(partial_chains.len())?.enumerate();
             let batch_count = batch_iter.len();
             for (batch_number, batch_info) in batch_iter {
                 if let Some(sender) = &sender {
@@ -104,9 +105,9 @@ impl SimpleTable {
                         .unwrap();
                 }
 
-                let batch_slice = backend.batch_slice(&mut partial_chains, &batch_info);
+                let batch_slice = renderer.batch_slice(&mut partial_chains, &batch_info);
                 let batch_chains =
-                    backend.run_kernel(batch_slice, &batch_info, columns.clone(), ctx)?;
+                    renderer.run_kernel(batch_slice, &batch_info, columns.clone(), ctx)?;
 
                 unique_chains.par_extend(
                     batch_chains

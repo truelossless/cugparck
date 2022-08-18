@@ -1,6 +1,7 @@
 use std::io;
 
 use thiserror::Error;
+use wgpu::BufferAsyncError;
 
 pub type CugparckResult<T> = std::result::Result<T, CugparckError>;
 
@@ -23,4 +24,10 @@ pub enum CugparckError {
 
     #[error("Cugparck only supports spaces up to 2^64, but the provided space is {0}")]
     Space(u8),
+
+    #[error("No suitable GPU found for the calcuation")]
+    NoGpu,
+
+    #[error("An error occured inside of wgpu")]
+    BufferAsync(#[from] BufferAsyncError),
 }

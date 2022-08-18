@@ -32,7 +32,7 @@ mod tests {
     use cugparck_commons::{hash, CompressedPassword};
     use itertools::Itertools;
 
-    use crate::{backend::CpuBackend, RainbowTableCtxBuilder, SimpleTable, TableCluster};
+    use crate::{backend::Cpu, RainbowTableCtxBuilder, SimpleTable, TableCluster};
 
     #[test]
     fn test_coverage() {
@@ -44,7 +44,7 @@ mod tests {
         let tables = (0..4)
             .map(|i| {
                 let ctx = ctx_builder.table_number(i).build().unwrap();
-                SimpleTable::new_blocking::<CpuBackend>(ctx).unwrap()
+                SimpleTable::new_blocking::<Cpu>(ctx).unwrap()
             })
             .collect_vec();
 

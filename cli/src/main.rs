@@ -21,7 +21,8 @@ use cugparck_commons::{
     DEFAULT_MAX_PASSWORD_LENGTH,
 };
 use cugparck_cpu::{
-    CompressedTable, Mmap, RainbowTable, RainbowTableStorage, SimpleTable, TableCluster,
+    backend::Renderer, CompressedTable, Mmap, RainbowTable, RainbowTableStorage, SimpleTable,
+    TableCluster,
 };
 
 use attack::attack;
@@ -170,9 +171,10 @@ pub struct Generate {
     #[clap(long, value_parser)]
     compress: bool,
 
-    /// Use the CPU for the generation (not recommanded unless your GPU is not CUDA-compatible).
-    #[clap(long, value_parser)]
-    cpu: bool,
+    /// Force a backend for the table generation.
+    /// If not provided, all the available backends will be benched and the fastest will be used.
+    #[clap(short, long, value_parser)]
+    backend: Renderer,
 
     /// Set the maximality factor (alpha).
     /// It is used to determine the number of startpoints.

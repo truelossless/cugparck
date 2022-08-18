@@ -1,10 +1,11 @@
 #![no_std]
 
-#[cfg(not(target_os = "cuda"))]
+#[cfg(not(any(target_os = "cuda", target_arch = "spirv")))]
 extern crate std;
 
 mod ntlm;
 
+use bytemuck::{Pod, Zeroable};
 use ntlm::ntlm;
 pub use tinyvec::ArrayVec;
 
@@ -19,7 +20,7 @@ use sha1::Sha1;
 use sha2::{Sha224, Sha256, Sha384, Sha512};
 use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
 
-#[cfg(not(target_os = "cuda"))]
+#[cfg(not(any(target_os = "cuda", target_arch = "spirv")))]
 use {
     bytecheck::CheckBytes,
     rkyv::{Archive, Deserialize, Serialize},
@@ -36,14 +37,14 @@ pub const DEFAULT_CHAIN_LENGTH: usize = 10_000;
 pub const DEFAULT_APLHA: f64 = 0.952;
 
 /// The default maximum password length.
-pub const DEFAULT_MAX_PASSWORD_LENGTH: u8 = 6;
+pub const DEFAULT_MAX_PASSWORD_LENGTH: usize = 6;
 
 /// The default charset.
 pub const DEFAULT_CHARSET: &[u8] =
     b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_";
 
 /// The default table number.
-pub const DEFAULT_TABLE_NUMBER: u8 = 8;
+pub const DEFAULT_TABLE_NUMBER: usize = 8;
 
 /// The maximum password size allowed.
 pub const MAX_PASSWORD_LENGTH_ALLOWED: usize = 10;
@@ -52,10 +53,10 @@ pub const MAX_PASSWORD_LENGTH_ALLOWED: usize = 10;
 pub const MAX_DIGEST_LENGTH_ALLOWED: usize = 64;
 
 /// The maximum charset length allowed.
-pub const MAX_CHARSET_LENGTH_ALLOWED: usize = 128;
+pub const MAX_CHARSET_LENGTH_ALLOWED: usize = 126;
 
 /// An ASCII password stored in a stack-allocated vector.
-#[repr(C)]
+#[repr(transparent)]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct Password(ArrayVec<[u8; MAX_PASSWORD_LENGTH_ALLOWED]>);
 
@@ -104,12 +105,12 @@ impl Debug for Password {
 /// two compressed passwords from two tables using different charsets
 /// are not equal if their inner usize is equal.
 #[repr(transparent)]
-#[cfg_attr(not(target_os = "cuda"), derive(Archive, Deserialize, Serialize))]
 #[cfg_attr(
-    not(target_os = "cuda"),
+    not(any(target_os = "cuda", target_arch = "spirv")),
+    derive(Archive, Deserialize, Serialize),
     archive_attr(derive(CheckBytes, PartialEq, Eq, Hash, Clone, Copy))
 )]
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Zeroable, Pod)]
 pub struct CompressedPassword(usize);
 
 impl CompressedPassword {
@@ -134,21 +135,21 @@ impl From<usize> for CompressedPassword {
     }
 }
 
-#[cfg(not(target_os = "cuda"))]
+#[cfg(not(any(target_os = "cuda", target_arch = "spirv")))]
 impl From<ArchivedCompressedPassword> for CompressedPassword {
     fn from(ar: ArchivedCompressedPassword) -> Self {
         CompressedPassword(ar.0 as usize)
     }
 }
 
-#[cfg(not(target_os = "cuda"))]
+#[cfg(not(any(target_os = "cuda", target_arch = "spirv")))]
 impl From<CompressedPassword> for ArchivedCompressedPassword {
     fn from(password: CompressedPassword) -> Self {
         ArchivedCompressedPassword(password.0 as u64)
     }
 }
 
-#[cfg(not(target_os = "cuda"))]
+#[cfg(not(any(target_os = "cuda", target_arch = "spirv")))]
 impl nohash_hasher::IsEnabled for CompressedPassword {}
 
 /// Converts a character from a charset to its ASCII representation.
@@ -167,9 +168,13 @@ pub fn ascii_to_charset(c: u8, charset: &[u8]) -> u8 {
 pub type Digest = ArrayVec<[u8; MAX_DIGEST_LENGTH_ALLOWED]>;
 
 /// All the supported hash functions.
-#[cfg_attr(not(target_os = "cuda"), derive(Archive, Deserialize, Serialize))]
-#[cfg_attr(not(target_os = "cuda"), archive_attr(derive(CheckBytes)))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    not(any(target_os = "cuda", target_arch = "spirv")),
+    derive(Archive, Deserialize, Serialize),
+    archive_attr(derive(CheckBytes))
+)]
+#[repr(usize)]
+#[derive(Clone, Copy, Debug)]
 pub enum HashType {
     Ntlm,
     Md4,
@@ -226,38 +231,63 @@ impl HashType {
 
 /// Context used to store all parameters used to generate a rainbow table.
 #[repr(C)]
-#[cfg_attr(not(target_os = "cuda"), derive(Archive, Deserialize, Serialize))]
-#[cfg_attr(not(target_os = "cuda"), archive_attr(derive(CheckBytes)))]
+#[cfg_attr(
+    not(any(target_os = "cuda", target_arch = "spirv")),
+    derive(Archive, Deserialize, Serialize),
+    archive_attr(derive(CheckBytes))
+)]
 #[derive(Clone, Copy, Debug)]
 pub struct RainbowTableCtx {
+    /// The number of starting chains to generate.
+    pub m0: usize,
     /// The type of the hash function used.
     pub hash_type: HashType,
+    /// The charset used.
+    pub charset: ArrayVec<[u8; MAX_CHARSET_LENGTH_ALLOWED]>,
+    /// The length of a chain.
+    pub t: usize,
+    /// The maximum password length.
+    pub max_password_length: usize,
+    /// The size of the total search space.
+    pub n: usize,
     /// A rainbow table has to search through passwords of a variable length.
     /// This is used to determine the search space for each password length.
     pub search_spaces: ArrayVec<[usize; MAX_PASSWORD_LENGTH_ALLOWED + 1]>,
-    /// The charset used.
-    pub charset: ArrayVec<[u8; MAX_CHARSET_LENGTH_ALLOWED]>,
-    /// The maximum password length.
-    pub max_password_length: u8,
-    /// The length of a chain.
-    pub t: usize,
     /// The table number.
-    pub tn: u8,
-    /// The number of starting chains to generate.
-    pub m0: usize,
-    /// The size of the total search space.
-    pub n: usize,
+    pub tn: usize,
 }
+
+// SAFETY: All fields can be initialized to 0.
+unsafe impl Zeroable for RainbowTableCtx {}
+
+// SAFETY: No pointers are used.
+// The struct doesn't have padding as all fields are 64-bits aligned.
+unsafe impl Pod for RainbowTableCtx {}
 
 // SAFETY: No pointers in the struct.
 #[cfg(feature = "cuda")]
 unsafe impl cust_core::DeviceCopy for RainbowTableCtx {}
 
+/// A struct that can be passed as a single argument to the GPU and that includes all arguments needed by the kernel.
+#[repr(C)]
+#[derive(Clone, Copy, Zeroable, Pod)]
+pub struct FullCtx {
+    /// The start of the column.
+    pub col_start: usize,
+    /// The end of the column.
+    pub col_end: usize,
+    /// The context.
+    pub ctx: RainbowTableCtx,
+}
+
 /// A chain of the rainbow table, made of a startpoint and an endpoint.
 #[repr(C)]
-#[cfg_attr(not(target_os = "cuda"), derive(Archive, Deserialize, Serialize))]
-#[cfg_attr(not(target_os = "cuda"), archive_attr(derive(CheckBytes)))]
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(any(target_os = "cuda", target_arch = "spirv")),
+    derive(Archive, Deserialize, Serialize),
+    archive_attr(derive(CheckBytes))
+)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Zeroable, Pod)]
 pub struct RainbowChain {
     pub startpoint: CompressedPassword,
     pub endpoint: CompressedPassword,
@@ -293,19 +323,7 @@ impl RainbowChain {
     }
 }
 
-#[cfg(not(target_os = "cuda"))]
-impl RainbowChain {
-    /// Prints the chain to the screen.
-    pub fn dbg(&self, ctx: &RainbowTableCtx) {
-        std::println!(
-            "{} -> ... -> {}",
-            self.startpoint.into_password(ctx),
-            self.endpoint.into_password(ctx)
-        )
-    }
-}
-
-#[cfg(not(target_os = "cuda"))]
+#[cfg(not(any(target_os = "cuda", target_arch = "spirv")))]
 impl ArchivedRainbowChain {
     pub fn from_compressed(
         startpoint: CompressedPassword,

@@ -1,3 +1,27 @@
+use std::{
+    env,
+    process::{self, Command},
+};
+
+fn compile(name: &str, toolchain: &str) {
+    println!("cargo:rerun-if-changed=../{name}/src/lib.rs");
+    println!("cargo:rerun-if-changed=../{name}_build/src/main.rs");
+
+    let build = Command::new("rustup")
+        .current_dir(env::current_dir().unwrap().join(format!("../{name}_build")))
+        .args(&["run", toolchain, "cargo", "run", "--release"])
+        .status()
+        .unwrap();
+
+    if !build.success() {
+        if let Some(code) = build.code() {
+            process::exit(code);
+        } else {
+            process::exit(1);
+        }
+    }
+}
+
 fn main() {
     #[cfg(not(target_pointer_width = "64"))]
     {
@@ -9,21 +33,9 @@ fn main() {
     // We can directly call cargo to compile with the old toolchain, and then use a newer toolchain elsewhere.
     #[cfg(feature = "cuda")]
     {
-        println!("cargo:rerun-if-changed=../cuda/src/lib.rs");
-        println!("cargo:rerun-if-changed=../cuda_build/src/main.rs");
-
-        let build = std::process::Command::new("rustup")
-            .current_dir(std::env::current_dir().unwrap().join("../cuda_build"))
-            .args(&["run", "nightly-2021-12-04", "cargo", "run", "--release"])
-            .status()
-            .unwrap();
-
-        if !build.success() {
-            if let Some(code) = build.code() {
-                std::process::exit(code);
-            } else {
-                std::process::exit(1);
-            }
-        }
+        compile("cuda", "nightly-2021-12-04");
     }
+
+    // For the SPIRV generation, we do the same trick to avoid being tied to a specific toolchain.
+    compile("spirv", "nightly-2022-04-11");
 }

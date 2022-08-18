@@ -5,6 +5,7 @@ mod bitvec_wrapper;
 mod error;
 mod event;
 mod rainbow_table;
+mod renderer;
 mod table_cluster;
 
 pub use {
@@ -25,8 +26,6 @@ use cugparck_commons::{
 };
 
 use error::CugparckResult;
-
-
 
 /// A builder for a rainbow table context.
 #[derive(Clone, Copy)]

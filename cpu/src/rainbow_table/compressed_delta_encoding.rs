@@ -583,7 +583,7 @@ impl RainbowTableStorage for CompressedTable {}
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::CpuBackend,
+        backend::Cpu,
         rainbow_table::{
             compressed_delta_encoding::{CompressedTableEndpointIterator, Index},
             simple::SimpleTable,
@@ -834,7 +834,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let table = SimpleTable::new_blocking::<CpuBackend>(ctx)
+        let table = SimpleTable::new_blocking::<Cpu>(ctx)
             .unwrap()
             .into_rainbow_table::<CompressedTable>();
         let search = Password::new(b"abca");
@@ -852,7 +852,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let table: CompressedTable = SimpleTable::new_blocking::<CpuBackend>(ctx)
+        let table: CompressedTable = SimpleTable::new_blocking::<Cpu>(ctx)
             .unwrap()
             .into_rainbow_table();
 

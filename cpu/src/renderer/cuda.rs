@@ -1,9 +1,9 @@
-//! CUDA backend using RUST-CUDA.
+//! CUDA renderer using RUST-CUDA.
 
 /// The CUDA PTX containing the GPU code.
 const PTX: &str = include_str!("../../../module.ptx");
 
-use super::Backend;
+use super::{Backend, Renderer};
 use crate::error::CugparckResult;
 use cugparck_commons::{RainbowChain, RainbowTableCtx};
 use cust::{function::FunctionAttribute, prelude::*};
@@ -102,17 +102,15 @@ impl Iterator for BatchIterator {
 
 impl ExactSizeIterator for BatchIterator {}
 
-pub struct CudaBackend {
+/// A CUDA renderer.
+pub struct CudaRenderer {
     device: Device,
     module: Module,
     stream: Stream,
     _ctx: Context,
 }
 
-impl Backend for CudaBackend {
-    type BatchIterator = BatchIterator;
-    type BatchInfo = BatchInfo;
-
+impl CudaRenderer {
     fn new() -> CugparckResult<Self> {
         cust::init(CudaFlags::empty())?;
         let device = Device::get_device(0)?;
@@ -120,13 +118,18 @@ impl Backend for CudaBackend {
         let module = Module::from_ptx(PTX, &[])?;
         let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
 
-        Ok(CudaBackend {
+        Ok(Self {
             device,
             module,
             stream,
             _ctx,
         })
     }
+}
+
+impl Renderer for CudaRenderer {
+    type BatchIterator = BatchIterator;
+    type BatchInfo = BatchInfo;
 
     fn batch_iter(&self, chains_len: usize) -> CugparckResult<Self::BatchIterator> {
         let kernel = self.module.get_function("chains_kernel")?;

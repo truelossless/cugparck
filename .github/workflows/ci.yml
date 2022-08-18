@@ -16,6 +16,12 @@ jobs:
       - name: Start Docker
         run: docker run -t -d -v $PWD:/root/rust-cuda --name builder rust-cuda
 
+      - name: Install Rust toolchains
+        run: |
+          rustup install nightly-2022-04-11
+          rustup install nightly-2021-12-04
+          rustup default nightly
+
       - name: Build executable with CUDA support
         run: |
           docker exec -w /root/rust-cuda builder cargo build --release --features cuda
@@ -47,6 +53,12 @@ jobs:
         uses: Jimver/cuda-toolkit@v0.2.8
         with:
           cuda: "11.2.2"
+
+      - name: Install Rust toolchains
+        run: |
+          rustup install nightly-2022-04-11
+          rustup install nightly-2021-12-04
+          rustup default nightly
 
       - name: Build executable with CUDA support
         run: |
