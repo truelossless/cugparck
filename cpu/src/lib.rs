@@ -4,7 +4,6 @@
 extern crate wgpu_crate as wgpu;
 
 pub mod backend;
-mod bitvec_wrapper;
 mod error;
 mod event;
 mod rainbow_table;

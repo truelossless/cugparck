@@ -3,47 +3,22 @@ on:
     tags:
       - "*"
 
+name: CI
+
 jobs:
-  build_linux:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone repository
-        uses: actions/checkout@v3
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-20.04
+            target: linux
+            ext: ""
+          - os: windows-latest
+            target: windows
+            ext: .exe
+    name: ${{ matrix.target }} build
+    runs-on: ${{ matrix.os }}
 
-      - name: Build Dockerfile
-        run: docker build -t rust-cuda .
-
-      - name: Start Docker
-        run: docker run -t -d -v $PWD:/root/rust-cuda --name builder rust-cuda
-
-      - name: Install Rust toolchains
-        run: |
-          rustup install nightly-2021-12-04
-          rustup default nightly
-
-      - name: Build executable with CUDA support
-        run: |
-          docker exec -w /root/rust-cuda builder cargo build --release --features cuda
-          docker exec -w /root/rust-cuda/target/release builder cp cugparck-cli cugparck-cli-linux-cuda
-
-      - name: Build executable without CUDA support
-        run: |
-          docker exec -w /root/rust-cuda builder cargo build --release
-          docker exec -w /root/rust-cuda/target/release builder cp cugparck-cli cugparck-cli-linux
-
-      - name: Run tests
-        run: docker exec -w /root/rust-cuda builder cargo test --release --no-fail-fast
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: cug-linux
-          path: |
-            target/release/cugparck-cli-linux-cuda
-            target/release/cugparck-cli-linux
-
-  build_windows:
-    runs-on: windows-latest
     steps:
       - name: Clone repository
         uses: actions/checkout@v3
@@ -53,20 +28,42 @@ jobs:
         with:
           cuda: "11.2.2"
 
-      - name: Install Rust toolchains
+      - name: Populate env
+        if: contains(matrix.os, 'ubuntu')
         run: |
-          rustup install nightly-2021-12-04
-          rustup default nightly
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CUDA_PATH/compat:$CUDA_PATH/nvvm/lib64" >> $GITHUB_ENV
+          echo "LLVM_LINK_SHARED=1" >> $GITHUB_ENV
+
+      - name: Install LLVM 7
+        if: contains(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get install llvm-7
+          sudo ln -s /usr/bin/llvm-config-7 /usr/local/bin/llvm-config
+
+      - name: Install Rust-CUDA toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-2021-12-04
+          components: rust-src, rustc-dev, llvm-tools-preview
+
+      - name: Install nightly toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          default: true
+
+      - name: Load Rust cache
+        uses: Swatinem/rust-cache@v1
 
       - name: Build executable with CUDA support
         run: |
           cargo build --release --features cuda
-          cp target/release/cugparck-cli.exe target/release/cugparck-cli-windows-cuda.exe
+          cp target/release/cugparck-cli${{ matrix.ext }} cugparck-cli-${{ matrix.target }}-cuda${{ matrix.ext }}
 
       - name: Build executable without CUDA support
         run: |
           cargo build --release
-          cp target/release/cugparck-cli.exe target/release/cugparck-cli-windows.exe
+          cp target/release/cugparck-cli${{ matrix.ext }} cugparck-cli-${{ matrix.target }}${{ matrix.ext }}
 
       - name: Run tests
         run: cargo test --release --no-fail-fast
@@ -74,13 +71,13 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: cug-windows
+          name: cug-${{ matrix.target }}
           path: |
-            target/release/cugparck-cli-windows-cuda.exe
-            target/release/cugparck-cli-windows.exe
+            cugparck-cli-${{ matrix.target }}-cuda${{ matrix.ext }}
+            cugparck-cli-${{ matrix.target }}${{ matrix.ext }}
 
   upload:
-    needs: [build_windows, build_linux]
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Clone repository

@@ -2,6 +2,8 @@
 
 Cugparck is a modern rainbow table library & CLI.
 
+[![CI](https://github.com/truelossless/cugparck/actions/workflows/ci.yml/badge.svg)](https://github.com/truelossless/cugparck/actions/workflows/ci.yml)
+
 > A rainbow table is a precomputed table for caching the output of cryptographic hash functions, usually for cracking password hashes. Tables are usually used in recovering a key derivation function (or credit card numbers, etc.) up to a certain length consisting of a limited set of characters. It is a practical example of a space–time tradeoff, using less computer processing time and more storage than a brute-force attack which calculates a hash on every attempt, but more processing time and less storage than a simple key derivation function with one entry per hash [1].
 
 ![demo](https://imgur.com/4e8TeTx.png)
@@ -54,9 +56,7 @@ On Windows if you're kind enough to the NVIDIA and LLVM gods no further steps ar
 
 On Linux your best bet is to use Docker to avoid incompabilities between the CUDA/GCC/LLVM toolchains. [Follow the instructions here to get started](https://github.com/Rust-GPU/Rust-CUDA/blob/master/guide/src/guide/getting_started.md#docker).
 
-Note that a specific nightly Rust toolchain is required. It will be downloaded automatically thanks to the `rust-toolchain` file.
-
-You can take a look at the `.github/workflows/ci.yml` file to see how the CI manages this process.
+You can take a look at the `.github/workflows/ci.yml` file to see how the CI manages the whole process.
 
 ## Contributing
 

@@ -8,7 +8,6 @@ use rayon::prelude::*;
 use rkyv::{Archive, Deserialize, Infallible, Serialize};
 
 use super::{RainbowTable, RainbowTableStorage};
-use crate::bitvec_wrapper::BitVecWrapper;
 
 /// An arbitrary block size.
 const BLOCK_SIZE: usize = 256;
@@ -18,7 +17,6 @@ const BLOCK_SIZE: usize = 256;
 #[archive_attr(derive(CheckBytes))]
 pub struct Index {
     len: usize,
-    #[with(BitVecWrapper)]
     entries: BitVec,
     bit_address_size: usize,
     chain_number_size: usize,
@@ -91,9 +89,7 @@ impl ArchivedIndex {
 pub struct CompressedTable {
     ctx: RainbowTableCtx,
     pub index: Index,
-    #[with(BitVecWrapper)]
     startpoints: BitVec,
-    #[with(BitVecWrapper)]
     endpoints: BitVec,
     l: usize,
     k: u8,

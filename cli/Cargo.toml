@@ -12,8 +12,8 @@ memmap2 = "0.5.7"
 hex = "0.4.3"
 clap = { version = "3.2.8", features = ["derive"] }
 indicatif = "0.17.0"
-crossterm = "0.23.2"
-comfy-table = "6.0.0"
+crossterm = "0.25.0"
+comfy-table = "6.1.0"
 nt-hive = { git = "https://github.com/ColinFinck/nt-hive" }
 md-5 = "0.10.1"
 rc4 = "0.1.0"

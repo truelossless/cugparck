@@ -6,7 +6,7 @@ edition = "2021"
 [target.'cfg(not(any(target_os = "cuda", target_arch = "spirv")))'.dependencies]
 nohash-hasher = "0.2.0"
 bytecheck = "0.6.8"
-rkyv = { version = "0.7.39", default-features = false, features = ["std", "validation", "size_64", "tinyvec"] }
+rkyv = { git = "https://github.com/rkyv/rkyv", default-features = false, features = ["std", "validation", "size_64", "tinyvec", "copy_unsafe", "bitvec_alloc"] }
 
 [dependencies]
 tinyvec = { version = "1.6.0", features = ["rustc_1_57"] }
