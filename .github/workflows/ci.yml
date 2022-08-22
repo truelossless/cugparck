@@ -18,7 +18,6 @@ jobs:
 
       - name: Install Rust toolchains
         run: |
-          rustup install nightly-2022-04-11
           rustup install nightly-2021-12-04
           rustup default nightly
 
@@ -56,7 +55,6 @@ jobs:
 
       - name: Install Rust toolchains
         run: |
-          rustup install nightly-2022-04-11
           rustup install nightly-2021-12-04
           rustup default nightly
 

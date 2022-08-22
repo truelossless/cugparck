@@ -9,7 +9,7 @@ use std::{
 use cugparck_commons::{RainbowChain, RainbowTableCtx};
 use rayon::prelude::*;
 
-use crate::error::CugparckResult;
+use crate::{backend::Backend, error::CugparckResult};
 
 use super::Renderer;
 
@@ -55,5 +55,16 @@ impl Renderer for CpuRenderer {
             .for_each(|partial_chain| partial_chain.continue_chain(columns.clone(), &ctx));
 
         Ok(Cow::Borrowed(batch))
+    }
+}
+
+/// A multithreaded CPU backend.
+pub struct Cpu;
+
+impl Backend for Cpu {
+    type Renderer = CpuRenderer;
+
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new()
     }
 }

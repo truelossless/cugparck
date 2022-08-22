@@ -3,8 +3,8 @@
 /// The CUDA PTX containing the GPU code.
 const PTX: &str = include_str!("../../../module.ptx");
 
-use super::{Backend, Renderer};
-use crate::error::CugparckResult;
+use super::Renderer;
+use crate::{backend::Backend, error::CugparckResult};
 use cugparck_commons::{RainbowChain, RainbowTableCtx};
 use cust::{function::FunctionAttribute, prelude::*};
 use std::{borrow::Cow, ops::Range};
@@ -172,5 +172,16 @@ impl Renderer for CudaRenderer {
         batch_chains.truncate(batch_info.range.len());
 
         Ok(Cow::Owned(batch_chains))
+    }
+}
+
+/// A CUDA backend.
+pub struct Cuda;
+
+impl Backend for Cuda {
+    type Renderer = CudaRenderer;
+
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new()
     }
 }

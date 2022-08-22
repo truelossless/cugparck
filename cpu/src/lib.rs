@@ -1,5 +1,8 @@
 #![feature(generic_associated_types)]
 
+#[cfg(feature = "wgpu")]
+extern crate wgpu_crate as wgpu;
+
 pub mod backend;
 mod bitvec_wrapper;
 mod error;
@@ -11,7 +14,6 @@ mod table_cluster;
 pub use {
     error::CugparckError,
     event::{Event, SimpleTableHandle},
-    memmap2::Mmap,
     rainbow_table::{CompressedTable, RainbowTable, RainbowTableStorage, SimpleTable},
     rkyv::{Deserialize, Infallible, Serialize},
     table_cluster::TableCluster,
@@ -33,8 +35,8 @@ pub struct RainbowTableCtxBuilder {
     hash_type: HashType,
     charset: ArrayVec<[u8; MAX_CHARSET_LENGTH_ALLOWED]>,
     t: usize,
-    tn: u8,
-    max_password_length: u8,
+    tn: usize,
+    max_password_length: usize,
     m0: Option<usize>,
     alpha: f64,
 }
@@ -44,9 +46,9 @@ impl Default for RainbowTableCtxBuilder {
         Self {
             hash_type: HashType::Ntlm,
             charset: DEFAULT_CHARSET.try_into().unwrap(),
-            max_password_length: DEFAULT_MAX_PASSWORD_LENGTH,
+            max_password_length: DEFAULT_MAX_PASSWORD_LENGTH as usize,
             t: DEFAULT_CHAIN_LENGTH,
-            tn: DEFAULT_TABLE_NUMBER,
+            tn: DEFAULT_TABLE_NUMBER as usize,
             m0: None,
             alpha: DEFAULT_APLHA,
         }
@@ -84,7 +86,7 @@ impl RainbowTableCtxBuilder {
 
     /// Sets the maximum password length of the context.
     pub fn max_password_length(mut self, max_password_length: u8) -> Self {
-        self.max_password_length = max_password_length;
+        self.max_password_length = max_password_length as usize;
 
         self
     }
@@ -92,7 +94,7 @@ impl RainbowTableCtxBuilder {
     /// Sets the table number of the context.
     /// Table numbers are 1-indexed.
     pub fn table_number(mut self, table_number: u8) -> Self {
-        self.tn = table_number;
+        self.tn = table_number as usize;
 
         self
     }

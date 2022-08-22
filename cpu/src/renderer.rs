@@ -1,14 +1,10 @@
 //! The renderers used to generate rainbow tables.
 
-mod cpu;
+pub mod cpu;
 #[cfg(feature = "cuda")]
-mod cuda;
-mod wgpu;
-
-pub use {self::wgpu::WgpuRenderer, cpu::CpuRenderer};
-
-#[cfg(feature = "cuda")]
-pub use cuda::CudaBackend;
+pub mod cuda;
+#[cfg(feature = "wgpu")]
+pub mod wgpu;
 
 use crate::error::CugparckResult;
 use cugparck_commons::{RainbowChain, RainbowTableCtx};

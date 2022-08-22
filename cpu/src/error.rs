@@ -1,7 +1,5 @@
 use std::io;
-
 use thiserror::Error;
-use wgpu::BufferAsyncError;
 
 pub type CugparckResult<T> = std::result::Result<T, CugparckError>;
 
@@ -28,6 +26,7 @@ pub enum CugparckError {
     #[error("No suitable GPU found for the calcuation")]
     NoGpu,
 
+    #[cfg(feature = "wgpu")]
     #[error("An error occured inside of wgpu")]
-    BufferAsync(#[from] BufferAsyncError),
+    BufferAsync(#[from] wgpu::BufferAsyncError),
 }

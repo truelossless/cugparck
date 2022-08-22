@@ -3,6 +3,13 @@
 //! - Vulkan, DX12, DX11 on Windows
 //! - Vulkan, GLES 3 on Linux
 //! - Metal on MacOS
+//!
+//! Unfortunately this is not usable right now because of two reasons:
+//!
+//! - The rust-gpu project, used to translate rust to WGSL shaders,
+//! is not mature enough and fails to compile.
+//!
+//! - There is no API yet to get the amount of memory available on the GPU. (https://github.com/gfx-rs/wgpu/issues/2447)
 
 use std::{borrow::Cow, iter::Once, mem, ops::Range};
 
@@ -164,7 +171,6 @@ impl WgpuRenderer {
         drop(data);
         staging_buffer.unmap();
 
-        // Returns data from buffer
         Ok(Cow::Owned(result))
     }
 }
@@ -199,4 +205,59 @@ impl Renderer for WgpuRenderer {
 
 pub struct BatchInfo {
     range: Range<usize>,
+}
+
+/// A Vulkan backend powered by wgpu.
+pub struct Vulkan;
+
+impl Backend for Vulkan {
+    type Renderer = WgpuRenderer;
+
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new(Backends::VULKAN)
+    }
+}
+
+/// A DirectX 12 backend powered by wgpu.
+pub struct Dx12;
+
+impl Backend for Dx12 {
+    type Renderer = WgpuRenderer;
+
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new(Backends::DX12)
+    }
+}
+
+/// A Metal backend powered by wgpu.
+pub struct Metal;
+
+impl Backend for Metal {
+    type Renderer = WgpuRenderer;
+
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new(Backends::METAL)
+    }
+}
+
+/// An OpenGL ES 3 backend powered by wgpu.
+pub struct OpenGL;
+
+impl Backend for OpenGL {
+    type Renderer = WgpuRenderer;
+
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new(Backends::GL)
+    }
+}
+
+/// A DirectX 11 backend powered by wgpu.
+pub struct Dx11;
+
+impl Backend for Dx11 {
+    type Renderer = WgpuRenderer;
+
+    fn renderer() -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new(Backends::DX11)
+    }
 }

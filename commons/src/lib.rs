@@ -37,14 +37,14 @@ pub const DEFAULT_CHAIN_LENGTH: usize = 10_000;
 pub const DEFAULT_APLHA: f64 = 0.952;
 
 /// The default maximum password length.
-pub const DEFAULT_MAX_PASSWORD_LENGTH: usize = 6;
+pub const DEFAULT_MAX_PASSWORD_LENGTH: u8 = 6;
 
 /// The default charset.
 pub const DEFAULT_CHARSET: &[u8] =
     b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_";
 
 /// The default table number.
-pub const DEFAULT_TABLE_NUMBER: usize = 8;
+pub const DEFAULT_TABLE_NUMBER: u8 = 8;
 
 /// The maximum password size allowed.
 pub const MAX_PASSWORD_LENGTH_ALLOWED: usize = 10;
@@ -174,7 +174,7 @@ pub type Digest = ArrayVec<[u8; MAX_DIGEST_LENGTH_ALLOWED]>;
     archive_attr(derive(CheckBytes))
 )]
 #[repr(usize)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum HashType {
     Ntlm,
     Md4,
@@ -407,9 +407,9 @@ mod tests {
             hash_type: HashType::Ntlm,
             search_spaces: array_vec![0, 1, 4, 13, 40, 121, 364],
             charset: b"abc".as_slice().try_into().unwrap(),
-            max_password_length: DEFAULT_MAX_PASSWORD_LENGTH,
+            max_password_length: DEFAULT_MAX_PASSWORD_LENGTH as usize,
             t: DEFAULT_CHAIN_LENGTH,
-            tn: DEFAULT_TABLE_NUMBER,
+            tn: DEFAULT_TABLE_NUMBER as usize,
             m0: 0,
             n: 0,
         }

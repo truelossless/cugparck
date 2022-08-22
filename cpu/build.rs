@@ -3,6 +3,7 @@ use std::{
     process::{self, Command},
 };
 
+#[allow(unused)]
 fn compile(name: &str, toolchain: &str) {
     println!("cargo:rerun-if-changed=../{name}/src/lib.rs");
     println!("cargo:rerun-if-changed=../{name}_build/src/main.rs");
@@ -28,6 +29,11 @@ fn main() {
         compile_error!("Sorry, only 64-bit archs are supported.");
     }
 
+    #[cfg(all(target_os = "macos", feature = "cuda"))]
+    {
+        compile_error!("Sorry, CUDA is not supported on macOS.");
+    }
+
     // if CUDA is used, we need to compile the PTX first.
     // However, rustc_codegen_nvvm requires a specific nightly toolchain that is too old for the whole project.
     // We can directly call cargo to compile with the old toolchain, and then use a newer toolchain elsewhere.
@@ -36,6 +42,9 @@ fn main() {
         compile("cuda", "nightly-2021-12-04");
     }
 
-    // For the SPIRV generation, we do the same trick to avoid being tied to a specific toolchain.
-    compile("spirv", "nightly-2022-04-11");
+    // For the SPIRV generation, we essentially do the same trick.
+    #[cfg(feature = "wgpu")]
+    {
+        compile("spirv", "nightly-2022-04-11");
+    }
 }

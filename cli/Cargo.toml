@@ -8,6 +8,7 @@ cugparck-commons = { path = "../commons" }
 cugparck-cpu = { path = "../cpu" }
 anyhow = "1.0.58"
 sysinfo = "0.25.2"
+memmap2 = "0.5.7"
 hex = "0.4.3"
 clap = { version = "3.2.8", features = ["derive"] }
 indicatif = "0.17.0"

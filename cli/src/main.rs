@@ -20,15 +20,13 @@ use cugparck_commons::{
     Digest, HashType, Password, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET,
     DEFAULT_MAX_PASSWORD_LENGTH,
 };
-use cugparck_cpu::{
-    backend::Renderer, CompressedTable, Mmap, RainbowTable, RainbowTableStorage, SimpleTable,
-    TableCluster,
-};
+use cugparck_cpu::{CompressedTable, RainbowTable, RainbowTableStorage, SimpleTable, TableCluster};
 
 use attack::attack;
 use compress::compress;
 use decompress::decompress;
 use generate::generate;
+use memmap2::Mmap;
 use stealdows::stealdows;
 
 /// All the hash types supported.
@@ -65,6 +63,36 @@ impl From<HashTypeArg> for HashType {
             HashTypeArg::Sha3_512 => HashType::Sha3_512,
         }
     }
+}
+
+/// All the backends available on this target, with the current feature flags.
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum, Default)]
+pub enum AvailableBackend {
+    #[cfg_attr(not(any(feature = "cuda", feature = "wgpu")), default)]
+    Cpu,
+    #[cfg(feature = "cuda")]
+    #[cfg_attr(feature = "cuda", default)]
+    Cuda,
+    #[cfg_attr(
+        all(
+            feature = "wgpu",
+            not(feature = "cuda"),
+            any(target_os = "linux", target_os = "windows")
+        ),
+        default
+    )]
+    #[cfg(all(feature = "wgpu", any(target_os = "windows", target_os = "linux")))]
+    Vulkan,
+    #[cfg(all(feature = "wgpu", target_os = "windows"))]
+    Dx12,
+    #[cfg(all(feature = "wgpu", target_os = "windows"))]
+    Dx11,
+    #[cfg_attr(all(feature = "wgpu", target_os = "macos"), default)]
+    #[cfg(all(feature = "wgpu", target_os = "macos"))]
+    Metal,
+    #[cfg(all(feature = "wgpu", target_os = "linux"))]
+    OpenGL,
 }
 
 /// Cugparck is a modern rainbow table library & CLI.
@@ -172,9 +200,9 @@ pub struct Generate {
     compress: bool,
 
     /// Force a backend for the table generation.
-    /// If not provided, all the available backends will be benched and the fastest will be used.
-    #[clap(short, long, value_parser)]
-    backend: Renderer,
+    /// If not provided, the fastest will be used.
+    #[clap(short, long, arg_enum, default_value_t)]
+    backend: AvailableBackend,
 
     /// Set the maximality factor (alpha).
     /// It is used to determine the number of startpoints.
