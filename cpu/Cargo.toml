@@ -1,6 +1,6 @@
 [package]
 name = "cugparck-cpu"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 
 [dependencies]
@@ -24,4 +24,4 @@ pollster = { version = "0.2.5", optional = true }
 
 [features]
 cuda = ["cust", "cugparck-commons/cuda"]
-wgpu = ["wgpu_crate", "bytemuck", "pollster"]
+wgpu = ["wgpu_crate", "bytemuck", "pollster", "cugparck-commons/wgpu"]

@@ -5,7 +5,6 @@ extern crate std;
 
 mod ntlm;
 
-use bytemuck::{Pod, Zeroable};
 use ntlm::ntlm;
 pub use tinyvec::ArrayVec;
 
@@ -110,7 +109,8 @@ impl Debug for Password {
     derive(Archive, Deserialize, Serialize),
     archive_attr(derive(CheckBytes, PartialEq, Eq, Hash, Clone, Copy))
 )]
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Zeroable, Pod)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(target_arch = "spirv", derive(bytemuck::Zeroable, bytemuck::Pod))]
 pub struct CompressedPassword(usize);
 
 impl CompressedPassword {
@@ -258,11 +258,13 @@ pub struct RainbowTableCtx {
 }
 
 // SAFETY: All fields can be initialized to 0.
-unsafe impl Zeroable for RainbowTableCtx {}
+#[cfg(target_arch = "spirv")]
+unsafe impl bytemuck::Zeroable for RainbowTableCtx {}
 
 // SAFETY: No pointers are used.
-// The struct doesn't have padding as all fields are 64-bits aligned.
-unsafe impl Pod for RainbowTableCtx {}
+// The struct doesn't have padding as all fields are 64-bit aligned.
+#[cfg(target_arch = "spirv")]
+unsafe impl bytemuck::Pod for RainbowTableCtx {}
 
 // SAFETY: No pointers in the struct.
 #[cfg(feature = "cuda")]
@@ -270,7 +272,8 @@ unsafe impl cust_core::DeviceCopy for RainbowTableCtx {}
 
 /// A struct that can be passed as a single argument to the GPU and that includes all arguments needed by the kernel.
 #[repr(C)]
-#[derive(Clone, Copy, Zeroable, Pod)]
+#[derive(Clone, Copy)]
+#[cfg_attr(target_arch = "spirv", derive(bytemuck::Zeroable, bytemuck::Pod))]
 pub struct FullCtx {
     /// The start of the column.
     pub col_start: usize,
@@ -287,7 +290,8 @@ pub struct FullCtx {
     derive(Archive, Deserialize, Serialize),
     archive_attr(derive(CheckBytes))
 )]
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Zeroable, Pod)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+#[cfg_attr(target_arch = "spirv", derive(bytemuck::Zeroable, bytemuck::Pod))]
 pub struct RainbowChain {
     pub startpoint: CompressedPassword,
     pub endpoint: CompressedPassword,

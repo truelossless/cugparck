@@ -29,7 +29,7 @@ jobs:
       - name: Build executable without CUDA support
         run: |
           docker exec -w /root/rust-cuda builder cargo build --release
-          docker exec -w /root/rust-cuda/target/release builder cp cugparck-cli cugparck-cli-linux-no-cuda
+          docker exec -w /root/rust-cuda/target/release builder cp cugparck-cli cugparck-cli-linux
 
       - name: Run tests
         run: docker exec -w /root/rust-cuda builder cargo test --release --no-fail-fast
@@ -40,7 +40,7 @@ jobs:
           name: cug-linux
           path: |
             target/release/cugparck-cli-linux-cuda
-            target/release/cugparck-cli-linux-no-cuda
+            target/release/cugparck-cli-linux
 
   build_windows:
     runs-on: windows-latest
@@ -66,7 +66,7 @@ jobs:
       - name: Build executable without CUDA support
         run: |
           cargo build --release
-          cp target/release/cugparck-cli.exe target/release/cugparck-cli-windows-no-cuda.exe
+          cp target/release/cugparck-cli.exe target/release/cugparck-cli-windows.exe
 
       - name: Run tests
         run: cargo test --release --no-fail-fast
@@ -77,7 +77,7 @@ jobs:
           name: cug-windows
           path: |
             target/release/cugparck-cli-windows-cuda.exe
-            target/release/cugparck-cli-windows-no-cuda.exe
+            target/release/cugparck-cli-windows.exe
 
   upload:
     needs: [build_windows, build_linux]
@@ -96,21 +96,15 @@ jobs:
         with:
           name: cug-linux
 
-      - name: Build Changelog
-        id: github_release
-        uses: mikepenz/release-changelog-builder-action@v3.2.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Create release
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          body: ${{steps.github_release.outputs.changelog}}
+          body: This is an automated build for Cugparck ${{ github.ref }}.
           draft: false
           prerelease: true
           files: |
             cugparck-cli-windows-cuda.exe
-            cugparck-cli-windows-no-cuda.exe
+            cugparck-cli-windows.exe
             cugparck-cli-linux-cuda
-            cugparck-cli-linux-no-cuda
+            cugparck-cli-linux
