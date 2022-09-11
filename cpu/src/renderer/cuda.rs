@@ -3,11 +3,11 @@
 /// The CUDA PTX containing the GPU code.
 const PTX: &str = include_str!("../../../module.ptx");
 
-use super::Renderer;
+use super::{BatchInformation, KernelHandle, Renderer, StagingHandleSync};
 use crate::{backend::Backend, error::CugparckResult};
-use cugparck_commons::{RainbowChain, RainbowTableCtx};
+use cugparck_commons::{CompressedPassword, RainbowTableCtx};
 use cust::{function::FunctionAttribute, prelude::*};
-use std::{borrow::Cow, ops::Range};
+use std::ops::Range;
 
 /// Infornations about a batch.
 #[derive(Debug)]
@@ -15,6 +15,12 @@ pub struct BatchInfo {
     pub range: Range<usize>,
     pub block_count: u32,
     pub thread_count: u32,
+}
+
+impl BatchInformation for BatchInfo {
+    fn range(&self) -> Range<usize> {
+        return self.range.clone();
+    }
 }
 
 /// An iterator generating multiple batches, regarding the host's and device's available RAM.
@@ -36,10 +42,8 @@ impl BatchIterator {
     ) -> CugparckResult<BatchIterator> {
         let device_memory = device.total_memory().unwrap() - 50_000;
 
-        // estimate of the memory used by one thread running the kernel
-        let kernel_mem = kernel.get_attribute(FunctionAttribute::LocalSizeBytes)? as usize;
-
-        let kernels_per_batch = device_memory / kernel_mem;
+        let kernel_memory = kernel.get_attribute(FunctionAttribute::LocalSizeBytes)? as usize;
+        let kernels_per_batch = device_memory / kernel_memory;
 
         // number of batches to do
         let mut batches = chains_len / kernels_per_batch;
@@ -108,50 +112,54 @@ pub struct CudaRenderer {
     module: Module,
     stream: Stream,
     _ctx: Context,
+    staging_buf: DeviceBuffer<CompressedPassword>,
 }
 
 impl CudaRenderer {
-    fn new() -> CugparckResult<Self> {
+    fn new(chains_len: usize) -> CugparckResult<Self> {
         cust::init(CudaFlags::empty())?;
         let device = Device::get_device(0)?;
         let _ctx = Context::new(device)?;
         let module = Module::from_ptx(PTX, &[])?;
         let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
 
-        Ok(Self {
+        // SAFETY: we're not using the staging buffer yet.
+        let mut renderer = Self {
             device,
             module,
             stream,
             _ctx,
-        })
+            staging_buf: unsafe { DeviceBuffer::uninitialized(0)? },
+        };
+
+        // get the largest batch possible to initialize the staging buffer
+        let largest_batch = renderer.max_staged_buffer_len(chains_len)?;
+
+        // SAFETY: we're never reading from the staging buffer before initializing it.
+        renderer.staging_buf = unsafe { DeviceBuffer::uninitialized(largest_batch)? };
+
+        Ok(renderer)
     }
 }
 
 impl Renderer for CudaRenderer {
     type BatchIterator = BatchIterator;
     type BatchInfo = BatchInfo;
+    type StagingHandle<'a> = StagingHandle<'a>;
 
     fn batch_iter(&self, chains_len: usize) -> CugparckResult<Self::BatchIterator> {
         let kernel = self.module.get_function("chains_kernel")?;
         BatchIterator::new(chains_len, &self.device, &kernel)
     }
 
-    fn batch_slice<'a>(
-        &self,
-        chains: &'a mut [cugparck_commons::RainbowChain],
-        batch_info: &Self::BatchInfo,
-    ) -> &'a mut [cugparck_commons::RainbowChain] {
-        &mut chains[batch_info.range.clone()]
-    }
-
-    fn run_kernel<'a>(
-        &self,
-        batch: &'a mut [cugparck_commons::RainbowChain],
+    fn start_kernel<'a>(
+        &mut self,
+        batch: &'a mut [CompressedPassword],
         batch_info: &Self::BatchInfo,
         columns: Range<usize>,
         ctx: RainbowTableCtx,
-    ) -> CugparckResult<Cow<'a, [RainbowChain]>> {
-        let d_batch = DeviceBuffer::from_slice(batch)?;
+    ) -> CugparckResult<KernelHandle<StagingHandle>> {
+        self.staging_buf.index(..batch.len()).copy_from(batch)?;
         let stream = &self.stream;
         let module = &self.module;
 
@@ -160,18 +168,43 @@ impl Renderer for CudaRenderer {
                 module.chains_kernel<<<batch_info.block_count, batch_info.thread_count, 0, stream>>>(
                     columns.start,
                     columns.end,
-                    d_batch.as_device_ptr(),
-                    d_batch.len(),
+                    self.staging_buf.as_device_ptr(),
+                    batch.len(),
                     ctx,
                 )
             )?
         }
-        stream.synchronize()?;
 
-        let mut batch_chains = d_batch.as_host_vec()?;
-        batch_chains.truncate(batch_info.range.len());
+        Ok(KernelHandle::Staged(StagingHandle {
+            batch_len: batch.len(),
+            stream,
+            staging_buf: &self.staging_buf,
+        }))
+    }
 
-        Ok(Cow::Owned(batch_chains))
+    fn max_staged_buffer_len(&self, chains_len: usize) -> CugparckResult<usize> {
+        Ok(self.batch_iter(chains_len)?.batch_size)
+    }
+}
+
+pub struct StagingHandle<'a> {
+    batch_len: usize,
+    stream: &'a Stream,
+    staging_buf: &'a DeviceBuffer<CompressedPassword>,
+}
+
+impl StagingHandleSync for StagingHandle<'_> {
+    fn sync(&mut self, batch_buf: &mut Vec<CompressedPassword>) -> CugparckResult<()> {
+        self.stream.synchronize()?;
+
+        // SAFETY: the capacity of the staging buffer is always at least as large as the largest batch.
+        unsafe { batch_buf.set_len(self.batch_len) }
+
+        self.staging_buf
+            .index(..self.batch_len)
+            .copy_to(batch_buf)?;
+
+        Ok(())
     }
 }
 
@@ -181,7 +214,7 @@ pub struct Cuda;
 impl Backend for Cuda {
     type Renderer = CudaRenderer;
 
-    fn renderer() -> CugparckResult<Self::Renderer> {
-        Self::Renderer::new()
+    fn renderer(chains_len: usize) -> CugparckResult<Self::Renderer> {
+        Self::Renderer::new(chains_len)
     }
 }

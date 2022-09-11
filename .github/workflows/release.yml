@@ -1,17 +1,12 @@
 on:
   push:
-    paths-ignore:
-      - "**.md"
-  pull_request:
-    paths-ignore:
-      - "**.md"
-    branches:
-      - master
+    tags:
+      - "*"
 
-name: CI
+name: Release
 
 jobs:
-  test:
+  build:
     strategy:
       matrix:
         include:
@@ -21,7 +16,7 @@ jobs:
           - os: windows-latest
             target: windows
             ext: .exe
-    name: ${{ matrix.target }} tests
+    name: ${{ matrix.target }} build
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -57,7 +52,7 @@ jobs:
           toolchain: nightly
           default: true
 
-      - name: Load rust Cache
+      - name: Load Rust cache
         uses: Swatinem/rust-cache@v1
 
       - name: Build executable with CUDA support
@@ -72,3 +67,41 @@ jobs:
 
       - name: Run tests
         run: cargo test --release --no-fail-fast
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: cug-${{ matrix.target }}
+          path: |
+            cugparck-cli-${{ matrix.target }}-cuda${{ matrix.ext }}
+            cugparck-cli-${{ matrix.target }}${{ matrix.ext }}
+
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v3
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: cug-windows
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: cug-linux
+
+      - name: Create release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          body: This is an automated build for Cugparck ${{ github.ref }}.
+          draft: false
+          prerelease: true
+          files: |
+            cugparck-cli-windows-cuda.exe
+            cugparck-cli-windows.exe
+            cugparck-cli-linux-cuda
+            cugparck-cli-linux

@@ -67,13 +67,9 @@ I'm currently developing this on a GTX 1060 with 16Go of RAM, so I can't really 
 I have done my best to avoid overflows (floats are used in formulas that may exceed u64::MAX, wrapping operations are used when needed etc.) but incorrect behaviors are very likely to happen as I can't test correctly big search spaces. So any help on testing Cugparck with big search spaces is appreciated.
 
 Besides that, here is a list of things that could be improved/implemented/tested:
-- AMD support (OpenCL? wgpu?)
-- Using the CPU cores during the GPU calculations
-- Better error checks and messages
 - Better memory management, such as more precise memory predictions for the device's memory and host's RAM. This would allow to schedule better batches on the GPU, and make sure that no memory allocation fails
 - Support for external memory (SSD and/or HDD). I think [6] should be a great startpoint (pun intended)
 - Support for distribution. Maybe MPI can be used? [3] Section 4 gives pointers to implement a distributed architecture with filtration
-- Using a `HashSet` instead of a sorted array (This would use more RAM but put less strain on the CPU)
 - Smaller RAM footprint
 - Implement checkpoints to speed up the attack phase as described in [7]
 

@@ -69,7 +69,9 @@ impl RainbowTableCtxBuilder {
 
     /// Sets the charset of the context.
     pub fn charset(mut self, charset: &[u8]) -> Self {
-        self.charset = charset.try_into().expect("Charset should be < 128 chars");
+        self.charset = charset.try_into().expect(&format!(
+            "Charset should be < {MAX_CHARSET_LENGTH_ALLOWED} chars"
+        ));
 
         self
     }
@@ -117,7 +119,7 @@ impl RainbowTableCtxBuilder {
     }
 
     /// Builds a RainbowTableCtx with the specified parameters.
-    pub fn build(self) -> CugparckResult<RainbowTableCtx> {
+    pub fn build(mut self) -> CugparckResult<RainbowTableCtx> {
         // create the search spaces
         let mut n: u128 = 0;
         let mut search_spaces = ArrayVec::new();
@@ -149,6 +151,8 @@ impl RainbowTableCtxBuilder {
                 m0.clamp(1., n as f64) as usize
             }
         };
+
+        self.charset.sort_unstable();
 
         Ok(RainbowTableCtx {
             search_spaces,

@@ -29,7 +29,7 @@ impl<'a, T: RainbowTable> TableCluster<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use cugparck_commons::{hash, CompressedPassword};
+    use cugparck_commons::CompressedPassword;
     use itertools::Itertools;
 
     use crate::{backend::Cpu, RainbowTableCtxBuilder, SimpleTable, TableCluster};
@@ -54,9 +54,11 @@ mod tests {
 
         let mut found = 0;
         let ctx = ctx_builder.build().unwrap();
+        let hash = ctx.hash_type.hash_function();
+
         for i in 0..ctx.n {
             let password = CompressedPassword::from(i).into_password(&ctx);
-            if let Some(plaintext) = cluster.search(hash(password, &ctx)) {
+            if let Some(plaintext) = cluster.search(hash(password)) {
                 assert_eq!(password, plaintext);
                 found += 1;
             }

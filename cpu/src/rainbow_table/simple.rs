@@ -1,33 +1,34 @@
-use std::{
-    collections::{hash_map::Iter, HashMap},
-    hash::BuildHasherDefault,
-    thread,
-};
+use std::{ops::Range, thread};
 
 use crate::{
     backend::Backend,
     event::{Event, SimpleTableHandle},
-    renderer::Renderer,
-    FiltrationIterator,
+    renderer::{BatchInformation, KernelHandle, Renderer, StagingHandleSync},
+    CugparckError, FiltrationIterator,
 };
 use bytecheck::CheckBytes;
 use crossbeam_channel::{unbounded, Sender};
 use cugparck_commons::{
     ArchivedCompressedPassword, CompressedPassword, RainbowChain, RainbowTableCtx,
 };
-use nohash_hasher::IntMap;
+use indexmap::{map::Iter, IndexMap};
+use nohash_hasher::BuildNoHashHasher;
 use rayon::prelude::*;
-use rkyv::{collections::hash_map::Iter as RkyvIter, Archive, Deserialize, Infallible, Serialize};
+use rkyv::{collections::index_map::Iter as RkyvIter, Archive, Deserialize, Infallible, Serialize};
 
 use super::{RainbowTable, RainbowTableStorage};
 use crate::error::CugparckResult;
+
+/// An indexed Hashmap using the endpoint of a rainbow chain as the key (and hash value) and the chain as the value.
+type RainbowMap =
+    IndexMap<CompressedPassword, CompressedPassword, BuildNoHashHasher<CompressedPassword>>;
 
 /// A simple rainbow table.
 #[derive(Archive, Deserialize, Serialize)]
 #[archive_attr(derive(CheckBytes))]
 pub struct SimpleTable {
     /// The chains of the table.
-    chains: IntMap<CompressedPassword, CompressedPassword>,
+    chains: RainbowMap,
     /// The context.
     ctx: RainbowTableCtx,
 }
@@ -37,7 +38,7 @@ impl SimpleTable {
     /// The chains must be made of valid startpoints and endpoints.
     pub fn from_vec(chains: Vec<RainbowChain>, ctx: RainbowTableCtx) -> Self {
         Self {
-            chains: IntMap::from_iter(
+            chains: RainbowMap::from_iter(
                 chains
                     .into_iter()
                     .map(|chain| (chain.endpoint, chain.startpoint)),
@@ -47,15 +48,16 @@ impl SimpleTable {
     }
 
     // Returns the startpoints in a vec.
-    fn startpoints(ctx: &RainbowTableCtx) -> Vec<RainbowChain> {
+    fn startpoints(ctx: &RainbowTableCtx) -> CugparckResult<Vec<CompressedPassword>> {
         let mut vec = Vec::new();
+        vec.try_reserve_exact(ctx.m0)?;
 
         (0..ctx.m0)
             .into_par_iter()
-            .map(|i| RainbowChain::from_compressed(i.into(), i.into()))
+            .map(|i| i.into())
             .collect_into_vec(&mut vec);
 
-        vec
+        Ok(vec)
     }
 
     /// Creates a new simple rainbow table, asynchronously.
@@ -79,21 +81,30 @@ impl SimpleTable {
         ctx: RainbowTableCtx,
         sender: Option<Sender<Event>>,
     ) -> CugparckResult<Self> {
-        let renderer = T::renderer()?;
+        let mut startpoints: Vec<CompressedPassword> = Self::startpoints(&ctx)?;
+        let mut midpoints: Vec<CompressedPassword> = Self::startpoints(&ctx)?;
 
-        let mut partial_chains = Self::startpoints(&ctx);
-        let mut unique_chains: IntMap<CompressedPassword, CompressedPassword> =
-            HashMap::with_capacity_and_hasher(ctx.m0, BuildHasherDefault::default());
+        let mut unique_chains = RainbowMap::default();
+        unique_chains
+            .try_reserve(ctx.m0)
+            .map_err(|_| CugparckError::IndexMapOutOfMemory)?;
+
+        let mut renderer = T::renderer(startpoints.len())?;
+
+        let mut batch_buf: Vec<CompressedPassword> = Vec::new();
+        batch_buf.try_reserve_exact(renderer.max_staged_buffer_len(startpoints.len())?)?;
 
         for columns in FiltrationIterator::new(ctx) {
-            partial_chains.par_extend(
-                unique_chains.par_drain().map(|(endpoint, startpoint)| {
-                    RainbowChain::from_compressed(startpoint, endpoint)
-                }),
-            );
+            if !unique_chains.is_empty() {
+                unique_chains
+                    .par_drain(..)
+                    .unzip_into_vecs(&mut midpoints, &mut startpoints);
+            }
 
-            let batch_iter = renderer.batch_iter(partial_chains.len())?.enumerate();
+            let batch_iter = renderer.batch_iter(midpoints.len())?.enumerate();
             let batch_count = batch_iter.len();
+            let mut previous_batch_range = Range::default();
+
             for (batch_number, batch_info) in batch_iter {
                 if let Some(sender) = &sender {
                     sender
@@ -105,15 +116,33 @@ impl SimpleTable {
                         .unwrap();
                 }
 
-                let batch_slice = renderer.batch_slice(&mut partial_chains, &batch_info);
-                let batch_chains =
-                    renderer.run_kernel(batch_slice, &batch_info, columns.clone(), ctx)?;
+                let batch = &mut midpoints[batch_info.range()];
+                let kernel_handle =
+                    renderer.start_kernel(batch, &batch_info, columns.clone(), ctx)?;
 
-                unique_chains.par_extend(
-                    batch_chains
-                        .into_par_iter()
-                        .map(|chain| (chain.endpoint, chain.startpoint)),
-                );
+                match kernel_handle {
+                    // the kernel is already done and the chains have been modified in place
+                    KernelHandle::Sync => {
+                        unique_chains.par_extend(
+                            batch
+                                .par_iter()
+                                .zip(startpoints[batch_info.range()].par_iter()),
+                        );
+                    }
+
+                    // the kernel is still running and the new midpoints will be available in the staging buffer
+                    KernelHandle::Staged(mut staging_handle) => {
+                        // add the chains of the previous batch to the HashMap while the kernel is running
+                        unique_chains.par_extend(
+                            batch_buf
+                                .par_iter()
+                                .zip(startpoints[previous_batch_range].par_iter()),
+                        );
+
+                        staging_handle.sync(&mut batch_buf)?;
+                        previous_batch_range = batch_info.range();
+                    }
+                }
 
                 if let Some(sender) = &sender {
                     let batch_percent = batch_number as f64 / batch_count as f64;
@@ -125,7 +154,12 @@ impl SimpleTable {
                 }
             }
 
-            partial_chains.clear();
+            // add the chains of the last batch
+            unique_chains.par_extend(
+                batch_buf
+                    .par_iter()
+                    .zip(startpoints[previous_batch_range].par_iter()),
+            );
         }
 
         unique_chains.shrink_to_fit();

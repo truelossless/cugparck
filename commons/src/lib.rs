@@ -127,7 +127,21 @@ impl CompressedPassword {
     pub fn get(&self) -> usize {
         self.0
     }
+
+    pub fn continue_chain(&mut self, columns: Range<usize>, ctx: &RainbowTableCtx) {
+        let hash = ctx.hash_type.hash_function();
+
+        for i in columns {
+            let plaintext = self.into_password(ctx);
+            let digest = hash(plaintext);
+            *self = reduce(digest, i, ctx);
+        }
+    }
 }
+
+// SAFETY: No pointers in the struct.
+#[cfg(feature = "cuda")]
+unsafe impl cust_core::DeviceCopy for CompressedPassword {}
 
 impl From<usize> for CompressedPassword {
     fn from(password: usize) -> Self {
@@ -191,22 +205,81 @@ pub enum HashType {
 }
 
 impl HashType {
-    /// Hashes a byte slice using the right hash function.
-    #[inline]
-    pub fn hash(&self, password: Password) -> ArrayVec<[u8; MAX_DIGEST_LENGTH_ALLOWED]> {
-        match self {
-            HashType::Ntlm => ntlm(&password).as_slice().try_into().unwrap(),
-            HashType::Md4 => Md4::digest(&password).as_slice().try_into().unwrap(),
-            HashType::Md5 => Md5::digest(&password).as_slice().try_into().unwrap(),
-            HashType::Sha1 => Sha1::digest(&password).as_slice().try_into().unwrap(),
-            HashType::Sha2_224 => Sha224::digest(&password).as_slice().try_into().unwrap(),
-            HashType::Sha2_256 => Sha256::digest(&password).as_slice().try_into().unwrap(),
-            HashType::Sha2_384 => Sha384::digest(&password).as_slice().try_into().unwrap(),
-            HashType::Sha2_512 => Sha512::digest(&password).as_slice().try_into().unwrap(),
-            HashType::Sha3_224 => Sha3_224::digest(&password).as_slice().try_into().unwrap(),
-            HashType::Sha3_256 => Sha3_256::digest(&password).as_slice().try_into().unwrap(),
-            HashType::Sha3_384 => Sha3_384::digest(&password).as_slice().try_into().unwrap(),
-            HashType::Sha3_512 => Sha3_512::digest(&password).as_slice().try_into().unwrap(),
+    /// Gets the right hash function.
+    pub fn hash_function(&self) -> fn(Password) -> Digest {
+        // SAFETY: The digests are guaranteed to be smaller or of the same size than the maximum digest size allowed.
+        unsafe {
+            match self {
+                HashType::Ntlm => {
+                    |password| ntlm(&password).as_slice().try_into().unwrap_unchecked()
+                }
+                HashType::Md4 => |password| {
+                    Md4::digest(&password)
+                        .as_slice()
+                        .try_into()
+                        .unwrap_unchecked()
+                },
+                HashType::Md5 => |password| {
+                    Md5::digest(&password)
+                        .as_slice()
+                        .try_into()
+                        .unwrap_unchecked()
+                },
+                HashType::Sha1 => |password| {
+                    Sha1::digest(&password)
+                        .as_slice()
+                        .try_into()
+                        .unwrap_unchecked()
+                },
+                HashType::Sha2_224 => |password| {
+                    Sha224::digest(&password)
+                        .as_slice()
+                        .try_into()
+                        .unwrap_unchecked()
+                },
+                HashType::Sha2_256 => |password| {
+                    Sha256::digest(&password)
+                        .as_slice()
+                        .try_into()
+                        .unwrap_unchecked()
+                },
+                HashType::Sha2_384 => |password| {
+                    Sha384::digest(&password)
+                        .as_slice()
+                        .try_into()
+                        .unwrap_unchecked()
+                },
+                HashType::Sha2_512 => |password| {
+                    Sha512::digest(&password)
+                        .as_slice()
+                        .try_into()
+                        .unwrap_unchecked()
+                },
+                HashType::Sha3_224 => |password| {
+                    Sha3_224::digest(&password)
+                        .as_slice()
+                        .try_into()
+                        .unwrap_unchecked()
+                },
+                HashType::Sha3_256 => |password| {
+                    Sha3_256::digest(&password)
+                        .as_slice()
+                        .try_into()
+                        .unwrap_unchecked()
+                },
+                HashType::Sha3_384 => |password| {
+                    Sha3_384::digest(&password)
+                        .as_slice()
+                        .try_into()
+                        .unwrap_unchecked()
+                },
+                HashType::Sha3_512 => |password| {
+                    Sha3_512::digest(&password)
+                        .as_slice()
+                        .try_into()
+                        .unwrap_unchecked()
+                },
+            }
         }
     }
 
@@ -314,17 +387,6 @@ impl RainbowChain {
             endpoint,
         }
     }
-
-    pub fn continue_chain(&mut self, columns: Range<usize>, ctx: &RainbowTableCtx) {
-        let mut midpoint = self.endpoint.into_password(ctx);
-
-        for i in columns {
-            let digest = hash(midpoint, ctx);
-            midpoint = reduce(digest, i, ctx);
-        }
-
-        self.endpoint = CompressedPassword::from_password(midpoint, ctx);
-    }
 }
 
 #[cfg(not(any(target_os = "cuda", target_arch = "spirv")))]
@@ -340,43 +402,34 @@ impl ArchivedRainbowChain {
     }
 }
 
-// SAFETY: No pointers in the struct.
-#[cfg(feature = "cuda")]
-unsafe impl cust_core::DeviceCopy for RainbowChain {}
-
 /// Reduces a digest into a password.
 // Notice how we multiply the table number with the iteration instead of just adding it.
 // This allows the reduce functions to be very different from one table to another.
 // On 4 tables, it bumps the success rate from 96.5% to 99.9% (way closer to the theorical bound).
 #[inline]
-pub fn reduce(digest: Digest, iteration: usize, ctx: &RainbowTableCtx) -> Password {
-    // we can use the 8 first bytes of the digest as it is pseudo-random.
-    let counter = (usize::from_le_bytes(digest[0..8].try_into().unwrap())
-        .wrapping_add(iteration.wrapping_mul(ctx.tn as usize)))
-        % ctx.n as usize;
-    counter_to_plaintext(counter, ctx)
-}
-
-/// Hashes a password into a digest.
-#[inline]
-pub fn hash(password: Password, ctx: &RainbowTableCtx) -> Digest {
-    ctx.hash_type.hash(password)
+pub fn reduce(digest: Digest, iteration: usize, ctx: &RainbowTableCtx) -> CompressedPassword {
+    // we can use the 8 first bytes of the digest as the seed, since it is pseudo-random.
+    // SAFETY: The digest is at least 8 bytes long.
+    let first_bytes = unsafe { usize::from_le_bytes(digest[0..8].try_into().unwrap_unchecked()) };
+    (first_bytes.wrapping_add(iteration.wrapping_mul(ctx.tn as usize)) % ctx.n).into()
 }
 
 /// Creates a plaintext from a counter.
 #[inline]
 pub fn counter_to_plaintext(mut counter: usize, ctx: &RainbowTableCtx) -> Password {
-    let mut plaintext = Password::default();
-    let search_space_rev = ctx
-        .search_spaces
-        .iter()
-        .rev()
-        .position(|space| counter >= *space)
-        .unwrap();
+    // SAFETY: A search space is always guaratenteed to be found.
+    let search_space_rev = unsafe {
+        ctx.search_spaces
+            .iter()
+            .rev()
+            .position(|space| counter >= *space)
+            .unwrap_unchecked()
+    };
     let len = ctx.search_spaces.len() - search_space_rev - 1;
 
     counter -= ctx.search_spaces[len];
 
+    let mut plaintext = Password::default();
     for _ in 0..len {
         plaintext.push(charset_to_ascii(counter % ctx.charset.len(), &ctx.charset));
         counter /= ctx.charset.len();

@@ -7,7 +7,7 @@ use std::{fs::File, path::Path};
 
 use bytecheck::CheckBytes;
 use cugparck_commons::{
-    hash, reduce, CompressedPassword, Digest, Password, RainbowChain, RainbowTableCtx,
+    reduce, CompressedPassword, Digest, Password, RainbowChain, RainbowTableCtx,
 };
 use rayon::prelude::*;
 use rkyv::{
@@ -59,19 +59,19 @@ pub trait RainbowTable: Sized + Sync {
     #[inline]
     fn search_column(&self, column: usize, digest: Digest) -> Option<Password> {
         let ctx = self.ctx();
+        let hash = ctx.hash_type.hash_function();
         let mut column_digest = digest;
-        let mut column_plaintext;
+        let mut column_counter;
 
         // get the reduction corresponding to the current column
         for k in column..ctx.t - 2 {
-            column_plaintext = reduce(column_digest, k, &ctx);
-            column_digest = hash(column_plaintext, &ctx);
+            column_counter = reduce(column_digest, k, &ctx);
+            let column_plaintext = column_counter.into_password(&ctx);
+            column_digest = hash(column_plaintext);
         }
-        column_plaintext = reduce(column_digest, &ctx.t - 2, &ctx);
+        column_counter = reduce(column_digest, &ctx.t - 2, &ctx);
 
-        let mut chain_plaintext = match self
-            .search_endpoints(CompressedPassword::from_password(column_plaintext, &ctx))
-        {
+        let mut chain_plaintext = match self.search_endpoints(column_counter) {
             None => return None,
             Some(found) => found.into_password(&ctx),
         };
@@ -79,10 +79,11 @@ pub trait RainbowTable: Sized + Sync {
 
         // we found a matching endpoint, reconstruct the chain
         for k in 0..column {
-            chain_digest = hash(chain_plaintext, &ctx);
-            chain_plaintext = reduce(chain_digest, k, &ctx);
+            chain_digest = hash(chain_plaintext);
+            let chain_counter = reduce(chain_digest, k, &ctx);
+            chain_plaintext = chain_counter.into_password(&ctx);
         }
-        chain_digest = hash(chain_plaintext, &ctx);
+        chain_digest = hash(chain_plaintext);
 
         // the digest was indeed present in the chain, we found a plaintext matching the digest
         if chain_digest == digest {

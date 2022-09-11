@@ -589,7 +589,7 @@ mod tests {
     };
 
     use bitvec::prelude::*;
-    use cugparck_commons::{hash, CompressedPassword, Password, RainbowChain};
+    use cugparck_commons::{CompressedPassword, Password, RainbowChain};
     use itertools::Itertools;
 
     use super::{CompressedTable, BLOCK_SIZE};
@@ -829,13 +829,14 @@ mod tests {
             .charset(b"abc")
             .build()
             .unwrap();
+        let hash = ctx.hash_type.hash_function();
 
         let table = SimpleTable::new_blocking::<Cpu>(ctx)
             .unwrap()
             .into_rainbow_table::<CompressedTable>();
         let search = Password::new(b"abca");
 
-        let found = table.search(hash(search, &ctx));
+        let found = table.search(hash(search));
         assert_eq!(search, found.unwrap());
     }
 
@@ -847,6 +848,7 @@ mod tests {
             .charset(b"abcdef")
             .build()
             .unwrap();
+        let hash = ctx.hash_type.hash_function();
 
         let table: CompressedTable = SimpleTable::new_blocking::<Cpu>(ctx)
             .unwrap()
@@ -855,7 +857,7 @@ mod tests {
         let mut found = 0;
         for i in 0..ctx.n {
             let password = CompressedPassword::from(i).into_password(&ctx);
-            if let Some(plaintext) = table.search(hash(password, &ctx)) {
+            if let Some(plaintext) = table.search(hash(password)) {
                 assert_eq!(password, plaintext);
                 found += 1;
             }

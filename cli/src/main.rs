@@ -326,7 +326,7 @@ fn load_tables_from_dir(dir: &Path) -> Result<(Vec<Mmap>, bool)> {
 
         let file = File::open(file.path()).context("Unable to open a rainbow table")?;
 
-        // SAFETY: the file exists and is not being modified anywhere else
+        // SAFETY: the file exists and is not being modified anywhere else.
         unsafe { mmaps.push(Mmap::map(&file)?) };
     }
 

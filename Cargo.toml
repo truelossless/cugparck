@@ -13,3 +13,6 @@ members = [
     "commons",
     "cpu",
 ]
+
+[patch.crates-io]
+indexmap = { git = "https://github.com/truelossless/indexmap" }

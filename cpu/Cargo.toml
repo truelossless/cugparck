@@ -1,15 +1,16 @@
 [package]
 name = "cugparck-cpu"
-version = "0.4.1"
+version = "0.4.3"
 edition = "2021"
 
 [dependencies]
 cugparck-commons = { path = "../commons"}
 thiserror = "1.0.24"
 bytecheck = "0.6.8"
-rkyv = { git = "https://github.com/rkyv/rkyv", default-features = false, features = ["std", "validation", "size_64", "tinyvec", "copy_unsafe", "bitvec_alloc"] }
+rkyv = { git = "https://github.com/rkyv/rkyv", default-features = false, features = ["std", "validation", "size_64", "tinyvec", "copy_unsafe", "bitvec_alloc", "indexmap"] }
 bitvec = "1.0.0"
 rayon = "1.5.3"
+indexmap = { git = "https://github.com/truelossless/indexmap", features = ["rayon"] }
 crossbeam-channel = "0.5.5"
 itertools = "0.10.3"
 nohash-hasher = "0.2.0"

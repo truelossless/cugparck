@@ -16,5 +16,5 @@ pub trait Backend {
     type Renderer: Renderer;
 
     /// Returns the renderer.
-    fn renderer() -> CugparckResult<Self::Renderer>;
+    fn renderer(chains_len: usize) -> CugparckResult<Self::Renderer>;
 }
