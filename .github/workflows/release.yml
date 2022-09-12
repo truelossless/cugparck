@@ -16,7 +16,7 @@ jobs:
           - os: windows-latest
             target: windows
             ext: .exe
-    name: ${{ matrix.target }} build
+    name: ${{ matrix.target }} release
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -97,7 +97,7 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          body: This is an automated build for Cugparck ${{ github.ref }}.
+          body: This is an automated build for Cugparck ${{ github.ref_name }}.
           draft: false
           prerelease: true
           files: |
