@@ -329,10 +329,12 @@ fn aes_encrypted_hash(rid: &[u8], v: &[u8], f: &[u8], bootkey: &[u8]) -> Digest 
 
 /// Returns the username of a RID.
 fn username(v: &[u8]) -> String {
-    let username_offset = (v[USERNAME_OFFSET] as u32 + OFFSET_ADD) as usize;
+    let username_offset =
+        u16::from_le_bytes(v[USERNAME_OFFSET..USERNAME_OFFSET + 2].try_into().unwrap()) as usize
+            + OFFSET_ADD as usize;
+
     let username_length = v[USERNAME_LENGTH_OFFSET] as usize;
     let username = &v[username_offset..username_offset + username_length];
-
     NtHiveNameString::Utf16LE(username).to_string()
 }
 
