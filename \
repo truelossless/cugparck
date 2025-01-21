@@ -1,14 +1,6 @@
 mod compressed_delta_encoding;
 mod simple;
 
-use std::{
-    fs::File,
-    io::{BufReader, BufWriter},
-    path::Path,
-};
-
-use crate::{error::CugparckResult, CugparckError};
-
 pub use {compressed_delta_encoding::CompressedTable, simple::SimpleTable};
 
 use cubecl::prelude::Array;
@@ -17,14 +9,14 @@ use cugparck_core::{
     MAX_DIGEST_LENGTH_ALLOWED,
 };
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Serialize, Deserialize;
 
 /// Trait that data structures implement to be used as rainbow tables.
-pub trait RainbowTable: Sized + Sync + Serialize + for<'a> Deserialize<'a> {
+pub trait RainbowTable: Sized + Sync {
     /// The type of the iterator over the chains of the table.
     type Iter<'a>: Iterator<Item = RainbowChain>
     where
-        Self: 'a;
+        Self: 'a + Serialize + Deserialize;
 
     /// Returns the number of chains stored in the table.
     fn len(&self) -> usize;
@@ -111,28 +103,5 @@ pub trait RainbowTable: Sized + Sync + Serialize + for<'a> Deserialize<'a> {
     /// Transforms this rainbow table into another rainbow table.
     fn into_rainbow_table<T: RainbowTable>(self) -> T {
         T::from_rainbow_table(self)
-    }
-
-    /// Stores this rainbow table to the given path.
-    fn store(&self, path: &Path) -> CugparckResult<()> {
-        let file = File::options()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(path)?;
-
-        let buf_writer = BufWriter::with_capacity(1024 * 1024 * 16, file);
-        bincode::serialize_into(buf_writer, self).map_err(|_| CugparckError::Serialize)?;
-
-        Ok(())
-    }
-
-    fn load(path: &Path) -> CugparckResult<Self> {
-        let file = File::open(path)?;
-        let buf_reader = BufReader::with_capacity(1024 * 1024 * 16, file);
-        let table =
-            bincode::deserialize_from(buf_reader).map_err(|_| CugparckError::Deserialize)?;
-
-        Ok(table)
     }
 }

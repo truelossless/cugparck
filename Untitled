@@ -1,0 +1,611 @@
+pub mod counter_to_plaintext {
+       use super::*;
+       #[allow(unused, clippy::all)]
+       pub fn expand(
+           context: &mut cubecl::prelude::CubeContext,
+           counter: <u64 as cubecl::prelude::CubeType>::ExpandType,
+           ctx: <RainbowTableCtx as cubecl::prelude::CubeType>::ExpandType,
+       ) -> <Password as cubecl::prelude::CubeType>::ExpandType {
+           cubecl::frontend::debug_source_expand(
+               context,
+               "counter_to_plaintext",
+               file!(),
+               line!(),
+               column!(),
+           );
+           use cubecl::prelude::IntoRuntime as _;
+           {
+               let mut search_space_index: <u32 as cubecl::frontend::CubeType>::ExpandType = {
+                   let _init = {
+                       let _lhs = {
+                           cubecl::frontend::debug_call_expand(
+                               context,
+                               "ctx . clone () . search_spaces . clone ().len",
+                               line!(),
+                               column!(),
+                               |context| {
+                                   ctx
+                                       .clone()
+                                       .search_spaces
+                                       .clone()
+                                       .__expand_len_method(context)
+                               },
+                           )
+                       };
+                       let _rhs = cubecl::frontend::ExpandElementTyped::from_lit(
+                           context,
+                           1u32,
+                       );
+                       cubecl::frontend::spanned_expand(
+                           context,
+                           line!(),
+                           column!(),
+                           |context| cubecl::frontend::sub::expand(context, _lhs, _rhs),
+                       )
+                   };
+                   cubecl::frontend::Init::init(_init, context)
+               };
+               cubecl::frontend::branch::loop_expand(
+                   context,
+                   |context| {
+                       let space = {
+                           let _arg_0 = search_space_index.clone();
+                           cubecl::frontend::debug_call_expand(
+                               context,
+                               "ctx . clone () . search_spaces . clone ().index",
+                               line!(),
+                               column!(),
+                               |context| {
+                                   ctx
+                                       .clone()
+                                       .search_spaces
+                                       .clone()
+                                       .__expand_index_method(context, _arg_0.into())
+                               },
+                           )
+                       };
+                       {
+                           let _cond = {
+                               let _lhs = {
+                                   let _lhs = counter.clone();
+                                   let _rhs = space;
+                                   cubecl::frontend::spanned_expand(
+                                       context,
+                                       line!(),
+                                       column!(),
+                                       |context| cubecl::frontend::ge::expand(context, _lhs, _rhs),
+                                   )
+                               };
+                               let _rhs = {
+                                   let _lhs = search_space_index.clone();
+                                   let _rhs = cubecl::frontend::ExpandElementTyped::from_lit(
+                                       context,
+                                       0,
+                                   );
+                                   cubecl::frontend::spanned_expand(
+                                       context,
+                                       line!(),
+                                       column!(),
+                                       |context| cubecl::frontend::eq::expand(context, _lhs, _rhs),
+                                   )
+                               };
+                               cubecl::frontend::spanned_expand(
+                                   context,
+                                   line!(),
+                                   column!(),
+                                   |context| cubecl::frontend::or::expand(context, _lhs, _rhs),
+                               )
+                           };
+                           cubecl::frontend::branch::if_expand(
+                               context,
+                               _cond.into(),
+                               |context| {
+                                   cubecl::frontend::branch::break_expand(context);
+                                   ()
+                               },
+                           );
+                       };
+                       {
+                           let _lhs = search_space_index.clone();
+                           let _rhs = cubecl::frontend::ExpandElementTyped::from_lit(
+                               context,
+                               1,
+                           );
+                           cubecl::frontend::spanned_expand(
+                               context,
+                               line!(),
+                               column!(),
+                               |context| cubecl::frontend::sub_assign_op::expand(
+                                   context,
+                                   _lhs,
+                                   _rhs,
+                               ),
+                           )
+                       };
+                       ()
+                   },
+               );
+               let len = {
+                   let _lhs = {
+                       let _lhs = {
+                           cubecl::frontend::debug_call_expand(
+                               context,
+                               "ctx . clone () . search_spaces . clone ().len",
+                               line!(),
+                               column!(),
+                               |context| {
+                                   ctx
+                                       .clone()
+                                       .search_spaces
+                                       .clone()
+                                       .__expand_len_method(context)
+                               },
+                           )
+                       };
+                       let _rhs = search_space_index;
+                       cubecl::frontend::spanned_expand(
+                           context,
+                           line!(),
+                           column!(),
+                           |context| cubecl::frontend::sub::expand(context, _lhs, _rhs),
+                       )
+                   };
+                   let _rhs = cubecl::frontend::ExpandElementTyped::from_lit(context, 1);
+                   cubecl::frontend::spanned_expand(
+                       context,
+                       line!(),
+                       column!(),
+                       |context| cubecl::frontend::sub::expand(context, _lhs, _rhs),
+                   )
+               };
+               {
+                   let _lhs = counter.clone();
+                   let _rhs = {
+                       let _arg_0 = len.clone();
+                       cubecl::frontend::debug_call_expand(
+                           context,
+                           "ctx . clone () . search_spaces . clone ().index",
+                           line!(),
+                           column!(),
+                           |context| {
+                               ctx
+                                   .clone()
+                                   .search_spaces
+                                   .clone()
+                                   .__expand_index_method(context, _arg_0.into())
+                           },
+                       )
+                   };
+                   cubecl::frontend::spanned_expand(
+                       context,
+                       line!(),
+                       column!(),
+                       |context| cubecl::frontend::sub_assign_op::expand(
+                           context,
+                           _lhs,
+                           _rhs,
+                       ),
+                   )
+               };
+               let mut plaintext = {
+                   let _init = {
+                       cubecl::frontend::debug_call_expand(
+                           context,
+                           "Password::new",
+                           line!(),
+                           column!(),
+                           |context| Password::__expand_new(context),
+                       )
+                   };
+                   cubecl::frontend::Init::init(_init, context)
+               };
+               {
+                   let _range = {
+                       let _start = 0;
+                       let _end = len;
+                       cubecl::frontend::RangeExpand::new(_start.into(), _end.into(), false)
+                   };
+                   let _unroll = false;
+                   cubecl::frontend::branch::for_expand(
+                       context,
+                       _range,
+                       _unroll,
+                       |context, _| {
+                           {
+                               let _arg_0 = {
+                                   let _arg_0 = {
+                                       let _lhs = counter.clone();
+                                       let _rhs = {
+                                           let __from = {
+                                               cubecl::frontend::debug_call_expand(
+                                                   context,
+                                                   "ctx . clone () . charset . clone ().len",
+                                                   line!(),
+                                                   column!(),
+                                                   |context| {
+                                                       ctx.clone().charset.clone().__expand_len_method(context)
+                                                   },
+                                               )
+                                           };
+                                           <u64 as cubecl::prelude::Cast>::__expand_cast_from(
+                                               context,
+                                               __from,
+                                           )
+                                       };
+                                       cubecl::frontend::spanned_expand(
+                                           context,
+                                           line!(),
+                                           column!(),
+                                           |context| cubecl::frontend::rem::expand(context, _lhs, _rhs),
+                                       )
+                                   };
+                                   let _arg_1 = ctx.clone().charset.clone();
+                                   cubecl::frontend::debug_call_expand(
+                                       context,
+                                       "charset_to_ascii",
+                                       line!(),
+                                       column!(),
+                                       |context| charset_to_ascii::expand(
+                                           context,
+                                           _arg_0.into(),
+                                           _arg_1.into(),
+                                       ),
+                                   )
+                               };
+                               cubecl::frontend::debug_call_expand(
+                                   context,
+                                   "plaintext . clone ().push",
+                                   line!(),
+                                   column!(),
+                                   |context| {
+                                       plaintext
+                                           .clone()
+                                           .__expand_push_method(context, _arg_0.into())
+                                   },
+                               )
+                           };
+                           {
+                               let _lhs = counter.clone();
+                               let _rhs = {
+                                   let __from = {
+                                       cubecl::frontend::debug_call_expand(
+                                           context,
+                                           "ctx . clone () . charset . clone ().len",
+                                           line!(),
+                                           column!(),
+                                           |context| {
+                                               ctx.clone().charset.clone().__expand_len_method(context)
+                                           },
+                                       )
+                                   };
+                                   <u64 as cubecl::prelude::Cast>::__expand_cast_from(
+                                       context,
+                                       __from,
+                                   )
+                               };
+                               cubecl::frontend::spanned_expand(
+                                   context,
+                                   line!(),
+                                   column!(),
+                                   |context| cubecl::frontend::div_assign_op::expand(
+                                       context,
+                                       _lhs,
+                                       _rhs,
+                                   ),
+                               )
+                           };
+                           ()
+                       },
+                   );
+               };
+               plaintext
+           }
+       }
+   }
+    [macro-error]
+2. custom attribute panicked
+   message: pub mod counter_to_plaintext {
+       use super::*;
+       #[allow(unused, clippy::all)]
+       pub fn expand(
+           context: &mut cubecl::prelude::CubeContext,
+           counter: <u64 as cubecl::prelude::CubeType>::ExpandType,
+           ctx: <RainbowTableCtx as cubecl::prelude::CubeType>::ExpandType,
+       ) -> <Password as cubecl::prelude::CubeType>::ExpandType {
+           cubecl::frontend::debug_source_expand(
+               context,
+               "counter_to_plaintext",
+               file!(),
+               line!(),
+               column!(),
+           );
+           use cubecl::prelude::IntoRuntime as _;
+           {
+               let mut search_space_index: <u32 as cubecl::frontend::CubeType>::ExpandType = {
+                   let _init = {
+                       let _lhs = {
+                           cubecl::frontend::debug_call_expand(
+                               context,
+                               "ctx.clone().search_spaces.clone().len",
+                               line!(),
+                               column!(),
+                               |context| {
+                                   ctx
+                                       .clone()
+                                       .search_spaces
+                                       .clone()
+                                       .__expand_len_method(context)
+                               },
+                           )
+                       };
+                       let _rhs = cubecl::frontend::ExpandElementTyped::from_lit(
+                           context,
+                           1u32,
+                       );
+                       cubecl::frontend::spanned_expand(
+                           context,
+                           line!(),
+                           column!(),
+                           |context| cubecl::frontend::sub::expand(context, _lhs, _rhs),
+                       )
+                   };
+                   cubecl::frontend::Init::init(_init, context)
+               };
+               cubecl::frontend::branch::loop_expand(
+                   context,
+                   |context| {
+                       let space = {
+                           let _arg_0 = search_space_index.clone();
+                           cubecl::frontend::debug_call_expand(
+                               context,
+                               "ctx.clone().search_spaces.clone().index",
+                               line!(),
+                               column!(),
+                               |context| {
+                                   ctx
+                                       .clone()
+                                       .search_spaces
+                                       .clone()
+                                       .__expand_index_method(context, _arg_0.into())
+                               },
+                           )
+                       };
+                       {
+                           let _cond = {
+                               let _lhs = {
+                                   let _lhs = counter.clone();
+                                   let _rhs = space;
+                                   cubecl::frontend::spanned_expand(
+                                       context,
+                                       line!(),
+                                       column!(),
+                                       |context| cubecl::frontend::ge::expand(context, _lhs, _rhs),
+                                   )
+                               };
+                               let _rhs = {
+                                   let _lhs = search_space_index.clone();
+                                   let _rhs = cubecl::frontend::ExpandElementTyped::from_lit(
+                                       context,
+                                       0,
+                                   );
+                                   cubecl::frontend::spanned_expand(
+                                       context,
+                                       line!(),
+                                       column!(),
+                                       |context| cubecl::frontend::eq::expand(context, _lhs, _rhs),
+                                   )
+                               };
+                               cubecl::frontend::spanned_expand(
+                                   context,
+                                   line!(),
+                                   column!(),
+                                   |context| cubecl::frontend::or::expand(context, _lhs, _rhs),
+                               )
+                           };
+                           cubecl::frontend::branch::if_expand(
+                               context,
+                               _cond.into(),
+                               |context| {
+                                   cubecl::frontend::branch::break_expand(context);
+                                   ()
+                               },
+                           );
+                       };
+                       {
+                           let _lhs = search_space_index.clone();
+                           let _rhs = cubecl::frontend::ExpandElementTyped::from_lit(
+                               context,
+                               1,
+                           );
+                           cubecl::frontend::spanned_expand(
+                               context,
+                               line!(),
+                               column!(),
+                               |context| cubecl::frontend::sub_assign_op::expand(
+                                   context,
+                                   _lhs,
+                                   _rhs,
+                               ),
+                           )
+                       };
+                       ()
+                   },
+               );
+               let len = {
+                   let _lhs = {
+                       let _lhs = {
+                           cubecl::frontend::debug_call_expand(
+                               context,
+                               "ctx.clone().search_spaces.clone().len",
+                               line!(),
+                               column!(),
+                               |context| {
+                                   ctx
+                                       .clone()
+                                       .search_spaces
+                                       .clone()
+                                       .__expand_len_method(context)
+                               },
+                           )
+                       };
+                       let _rhs = search_space_index;
+                       cubecl::frontend::spanned_expand(
+                           context,
+                           line!(),
+                           column!(),
+                           |context| cubecl::frontend::sub::expand(context, _lhs, _rhs),
+                       )
+                   };
+                   let _rhs = cubecl::frontend::ExpandElementTyped::from_lit(context, 1);
+                   cubecl::frontend::spanned_expand(
+                       context,
+                       line!(),
+                       column!(),
+                       |context| cubecl::frontend::sub::expand(context, _lhs, _rhs),
+                   )
+               };
+               {
+                   let _lhs = counter.clone();
+                   let _rhs = {
+                       let _arg_0 = len.clone();
+                       cubecl::frontend::debug_call_expand(
+                           context,
+                           "ctx.clone().search_spaces.clone().index",
+                           line!(),
+                           column!(),
+                           |context| {
+                               ctx
+                                   .clone()
+                                   .search_spaces
+                                   .clone()
+                                   .__expand_index_method(context, _arg_0.into())
+                           },
+                       )
+                   };
+                   cubecl::frontend::spanned_expand(
+                       context,
+                       line!(),
+                       column!(),
+                       |context| cubecl::frontend::sub_assign_op::expand(
+                           context,
+                           _lhs,
+                           _rhs,
+                       ),
+                   )
+               };
+               let mut plaintext = {
+                   let _init = {
+                       cubecl::frontend::debug_call_expand(
+                           context,
+                           "Password::new",
+                           line!(),
+                           column!(),
+                           |context| Password::__expand_new(context),
+                       )
+                   };
+                   cubecl::frontend::Init::init(_init, context)
+               };
+               {
+                   let _range = {
+                       let _start = 0;
+                       let _end = len;
+                       cubecl::frontend::RangeExpand::new(_start.into(), _end.into(), false)
+                   };
+                   let _unroll = false;
+                   cubecl::frontend::branch::for_expand(
+                       context,
+                       _range,
+                       _unroll,
+                       |context, _| {
+                           {
+                               let _arg_0 = {
+                                   let _arg_0 = {
+                                       let _lhs = counter.clone();
+                                       let _rhs = {
+                                           let __from = {
+                                               cubecl::frontend::debug_call_expand(
+                                                   context,
+                                                   "ctx.clone().charset.clone().len",
+                                                   line!(),
+                                                   column!(),
+                                                   |context| {
+                                                       ctx.clone().charset.clone().__expand_len_method(context)
+                                                   },
+                                               )
+                                           };
+                                           <u64 as cubecl::prelude::Cast>::__expand_cast_from(
+                                               context,
+                                               __from,
+                                           )
+                                       };
+                                       cubecl::frontend::spanned_expand(
+                                           context,
+                                           line!(),
+                                           column!(),
+                                           |context| cubecl::frontend::rem::expand(context, _lhs, _rhs),
+                                       )
+                                   };
+                                   let _arg_1 = ctx.clone().charset.clone();
+                                   cubecl::frontend::debug_call_expand(
+                                       context,
+                                       "charset_to_ascii",
+                                       line!(),
+                                       column!(),
+                                       |context| charset_to_ascii::expand(
+                                           context,
+                                           _arg_0.into(),
+                                           _arg_1.into(),
+                                       ),
+                                   )
+                               };
+                               cubecl::frontend::debug_call_expand(
+                                   context,
+                                   "plaintext.clone().push",
+                                   line!(),
+                                   column!(),
+                                   |context| {
+                                       plaintext
+                                           .clone()
+                                           .__expand_push_method(context, _arg_0.into())
+                                   },
+                               )
+                           };
+                           {
+                               let _lhs = counter.clone();
+                               let _rhs = {
+                                   let __from = {
+                                       cubecl::frontend::debug_call_expand(
+                                           context,
+                                           "ctx.clone().charset.clone().len",
+                                           line!(),
+                                           column!(),
+                                           |context| {
+                                               ctx.clone().charset.clone().__expand_len_method(context)
+                                           },
+                                       )
+                                   };
+                                   <u64 as cubecl::prelude::Cast>::__expand_cast_from(
+                                       context,
+                                       __from,
+                                   )
+                               };
+                               cubecl::frontend::spanned_expand(
+                                   context,
+                                   line!(),
+                                   column!(),
+                                   |context| cubecl::frontend::div_assign_op::expand(
+                                       context,
+                                       _lhs,
+                                       _rhs,
+                                   ),
+                               )
+                           };
+                           ()
+                       },
+                   );
+               };
+               plaintext
+           }
+       }
+   }
+   

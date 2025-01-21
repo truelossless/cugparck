@@ -1,22 +1,23 @@
-use std::{ops::Range, thread};
+use std::thread;
 
 use crate::{
-    backend::Backend,
+    batch::BatchIterator,
     event::{Event, SimpleTableHandle},
-    renderer::{BatchInformation, KernelHandle, Renderer, StagingHandleSync},
     CugparckError, FiltrationIterator,
 };
-use bytecheck::CheckBytes;
+
 use crossbeam_channel::{unbounded, Sender};
-use cugparck_commons::{
-    ArchivedCompressedPassword, CompressedPassword, RainbowChain, RainbowTableCtx,
+use cubecl::prelude::*;
+use cugparck_core::{
+    into_password, CompressedPassword, RainbowChain, RainbowTableCtx, RainbowTableCtxLaunch,
 };
+use cugparck_cubecl::chains_kernel;
 use indexmap::{map::Iter, IndexMap};
 use nohash_hasher::BuildNoHashHasher;
 use rayon::prelude::*;
-use rkyv::{collections::index_map::Iter as RkyvIter, Archive, Deserialize, Infallible, Serialize};
+use serde::{Deserialize, Serialize};
 
-use super::{RainbowTable, RainbowTableStorage};
+use super::RainbowTable;
 use crate::error::CugparckResult;
 
 /// An indexed Hashmap using the endpoint of a rainbow chain as the key (and hash value) and the chain as the value.
@@ -24,8 +25,7 @@ type RainbowMap =
     IndexMap<CompressedPassword, CompressedPassword, BuildNoHashHasher<CompressedPassword>>;
 
 /// A simple rainbow table.
-#[derive(Archive, Deserialize, Serialize)]
-#[archive_attr(derive(CheckBytes))]
+#[derive(Serialize, Deserialize)]
 pub struct SimpleTable {
     /// The chains of the table.
     chains: RainbowMap,
@@ -49,20 +49,15 @@ impl SimpleTable {
 
     // Returns the startpoints in a vec.
     fn startpoints(ctx: &RainbowTableCtx) -> CugparckResult<Vec<CompressedPassword>> {
-        let mut vec = Vec::new();
-        vec.try_reserve_exact(ctx.m0)?;
-
-        (0..ctx.m0)
-            .into_par_iter()
-            .map(|i| i.into())
-            .collect_into_vec(&mut vec);
-
+        let mut vec: Vec<CompressedPassword> = Vec::new();
+        vec.try_reserve_exact(ctx.m0 as usize)?;
+        vec.extend(0..ctx.m0);
         Ok(vec)
     }
 
     /// Creates a new simple rainbow table, asynchronously.
     /// Returns an handle to get events related to the generation and to get the generated table.
-    pub fn new_nonblocking<T: Backend>(ctx: RainbowTableCtx) -> CugparckResult<SimpleTableHandle> {
+    pub fn new_nonblocking<T: Runtime>(ctx: RainbowTableCtx) -> CugparckResult<SimpleTableHandle> {
         let (sender, receiver) = unbounded();
         let thread_handle = thread::spawn(move || Self::new::<T>(ctx, Some(sender)));
 
@@ -73,76 +68,110 @@ impl SimpleTable {
     }
 
     /// Creates a new simple rainbow table.
-    pub fn new_blocking<T: Backend>(ctx: RainbowTableCtx) -> CugparckResult<Self> {
-        Self::new::<T>(ctx, None)
+    pub fn new_blocking<Backend: Runtime>(ctx: RainbowTableCtx) -> CugparckResult<Self> {
+        Self::new::<Backend>(ctx, None)
     }
 
-    fn new<T: Backend>(
+    fn new<Backend: Runtime>(
         ctx: RainbowTableCtx,
         sender: Option<Sender<Event>>,
     ) -> CugparckResult<Self> {
+        let client = Backend::client(&Default::default());
         let mut startpoints: Vec<CompressedPassword> = Self::startpoints(&ctx)?;
-        let mut midpoints: Vec<CompressedPassword> = Self::startpoints(&ctx)?;
+        let mut midpoints: Vec<CompressedPassword> = startpoints.clone();
 
         let mut unique_chains = RainbowMap::default();
         unique_chains
-            .try_reserve(ctx.m0)
+            .try_reserve(ctx.m0 as usize)
             .map_err(|_| CugparckError::IndexMapOutOfMemory)?;
 
-        let mut renderer = T::renderer(startpoints.len())?;
-
         let mut batch_buf: Vec<CompressedPassword> = Vec::new();
-        batch_buf.try_reserve_exact(renderer.max_staged_buffer_len(startpoints.len())?)?;
+        // TODO: Fix memory
+        batch_buf.try_reserve_exact(1024 * 1024 * 1024)?;
 
-        for columns in FiltrationIterator::new(ctx) {
+        for columns in FiltrationIterator::new(ctx.clone()) {
             if !unique_chains.is_empty() {
                 unique_chains
                     .par_drain(..)
                     .unzip_into_vecs(&mut midpoints, &mut startpoints);
             }
 
-            let batch_iter = renderer.batch_iter(midpoints.len())?.enumerate();
-            let batch_count = batch_iter.len();
-            let mut previous_batch_range = Range::default();
+            let batch_iter = BatchIterator::new(midpoints.len())?.enumerate();
+            let batch_count = batch_iter.len() as u64;
 
             for (batch_number, batch_info) in batch_iter {
                 if let Some(sender) = &sender {
                     sender
                         .send(Event::Batch {
-                            batch_number: batch_number + 1,
+                            batch_number: batch_number as u64 + 1,
                             batch_count,
                             columns: columns.clone(),
                         })
                         .unwrap();
                 }
 
-                let batch = &mut midpoints[batch_info.range()];
-                let kernel_handle =
-                    renderer.start_kernel(batch, &batch_info, columns.clone(), ctx)?;
+                let batch = &mut midpoints[batch_info.range.clone()];
+                let batch_handle = client.create(u64::as_bytes(batch));
 
-                match kernel_handle {
-                    // the kernel is already done and the chains have been modified in place
-                    KernelHandle::Sync => {
-                        unique_chains.par_extend(
-                            batch
-                                .par_iter()
-                                .zip(startpoints[batch_info.range()].par_iter()),
-                        );
+                // run the kernel
+                unsafe {
+                    let batch_arg = ArrayArg::from_raw_parts::<u64>(&batch_handle, batch.len(), 1);
+
+                    // let charset_arg = ctx.charset.into();
+                    // let charset_handle = client.create(u8::as_bytes(&charset_vec));
+                    // let charset_arg = SequenceArg::from_raw_parts::<u8>(
+                    //     &charset_handle,
+                    //     ctx.charset.len() as usize,
+                    //     1,
+                    // );
+
+                    let mut charset_arg = SequenceArg::new();
+                    charset_arg.push(ScalarArg::new(b'a'));
+                    charset_arg.push(ScalarArg::new(b'b'));
+                    charset_arg.push(ScalarArg::new(b'c'));
+                    charset_arg.push(ScalarArg::new(b'd'));
+
+                    // let search_spaces_vec: Vec<u64> = ctx.search_spaces.into_iter().collect();
+                    // let search_spaces_handle = client.create(u64::as_bytes(&search_spaces_vec));
+                    // let search_spaces_arg = ArrayArg::from_raw_parts::<u64>(
+                    //     &search_spaces_handle,
+                    //     ctx.search_spaces.len() as usize,
+                    //     1,
+                    // );
+
+                    let mut search_spaces_arg = SequenceArg::new();
+                    for search_space in ctx.search_spaces.clone() {
+                        search_spaces_arg.push(ScalarArg::new(search_space));
                     }
 
-                    // the kernel is still running and the new midpoints will be available in the staging buffer
-                    KernelHandle::Staged(mut staging_handle) => {
-                        // add the chains of the previous batch to the HashMap while the kernel is running
-                        unique_chains.par_extend(
-                            batch_buf
-                                .par_iter()
-                                .zip(startpoints[previous_batch_range].par_iter()),
-                        );
+                    let launch_ctx = RainbowTableCtxLaunch::new(
+                        ScalarArg::new(ctx.m0),
+                        charset_arg,
+                        ScalarArg::new(ctx.t),
+                        ScalarArg::new(ctx.max_password_length),
+                        ScalarArg::new(ctx.n),
+                        search_spaces_arg,
+                        ScalarArg::new(ctx.tn),
+                    );
 
-                        staging_handle.sync(&mut batch_buf)?;
-                        previous_batch_range = batch_info.range();
-                    }
+                    // TODO: fix dims
+                    chains_kernel::launch_unchecked::<Backend>(
+                        &client,
+                        CubeCount::Static(1, 1, 1),
+                        CubeDim::new(batch.len() as u32, 1, 1),
+                        batch_arg,
+                        ScalarArg::new(columns.start as u64),
+                        ScalarArg::new(columns.end as u64),
+                        launch_ctx,
+                    );
                 }
+
+                let batch_output = client.read_one(batch_handle.binding());
+                unique_chains.par_extend(
+                    CompressedPassword::from_bytes(&batch_output)
+                        .par_iter()
+                        .zip(startpoints[batch_info.range.clone()].par_iter()),
+                );
 
                 if let Some(sender) = &sender {
                     let batch_percent = batch_number as f64 / batch_count as f64;
@@ -153,13 +182,6 @@ impl SimpleTable {
                     sender.send(Event::Progress(progress)).unwrap();
                 }
             }
-
-            // add the chains of the last batch
-            unique_chains.par_extend(
-                batch_buf
-                    .par_iter()
-                    .zip(startpoints[previous_batch_range].par_iter()),
-            );
         }
 
         unique_chains.shrink_to_fit();
@@ -186,7 +208,7 @@ impl RainbowTable for SimpleTable {
     }
 
     fn ctx(&self) -> RainbowTableCtx {
-        self.ctx
+        self.ctx.clone()
     }
 
     fn from_rainbow_table<T: RainbowTable>(table: T) -> Self {
@@ -200,44 +222,9 @@ impl RainbowTable for SimpleTable {
     }
 }
 
-impl RainbowTable for ArchivedSimpleTable {
-    type Iter<'a> = ArchivedSimpleTableIterator<'a>;
-
-    fn len(&self) -> usize {
-        self.chains.len()
-    }
-
-    fn iter(&self) -> Self::Iter<'_> {
-        self.into_iter()
-    }
-
-    fn search_endpoints(&self, password: CompressedPassword) -> Option<CompressedPassword> {
-        self.chains
-            .get(&password.into())
-            .map(|ar| ar.deserialize(&mut Infallible).unwrap())
-    }
-
-    fn ctx(&self) -> RainbowTableCtx {
-        self.ctx.deserialize(&mut Infallible).unwrap()
-    }
-
-    fn from_rainbow_table<T: RainbowTable>(_: T) -> Self {
-        panic!("Archived tables cannot be built from other tables")
-    }
-}
-
 impl<'a> IntoIterator for &'a SimpleTable {
     type Item = RainbowChain;
     type IntoIter = <SimpleTable as RainbowTable>::Iter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        Self::IntoIter::new(self)
-    }
-}
-
-impl<'a> IntoIterator for &'a ArchivedSimpleTable {
-    type Item = RainbowChain;
-    type IntoIter = <ArchivedSimpleTable as RainbowTable>::Iter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         Self::IntoIter::new(self)
@@ -248,20 +235,8 @@ pub struct SimpleTableIterator<'a> {
     inner: Iter<'a, CompressedPassword, CompressedPassword>,
 }
 
-pub struct ArchivedSimpleTableIterator<'a> {
-    inner: RkyvIter<'a, ArchivedCompressedPassword, ArchivedCompressedPassword>,
-}
-
 impl<'a> SimpleTableIterator<'a> {
     pub fn new(table: &'a SimpleTable) -> Self {
-        Self {
-            inner: table.chains.iter(),
-        }
-    }
-}
-
-impl<'a> ArchivedSimpleTableIterator<'a> {
-    pub fn new(table: &'a ArchivedSimpleTable) -> Self {
         Self {
             inner: table.chains.iter(),
         }
@@ -278,29 +253,20 @@ impl Iterator for SimpleTableIterator<'_> {
     }
 }
 
-impl Iterator for ArchivedSimpleTableIterator<'_> {
-    type Item = RainbowChain;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|(endpoint, startpoint)| {
-            RainbowChain::from_compressed((*startpoint).into(), (*endpoint).into())
-        })
-    }
-}
-
-impl RainbowTableStorage for SimpleTable {}
-
 impl std::fmt::Debug for SimpleTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let chains_count = self.chains.len().min(10);
         let some_chains = self.chains.iter().take(chains_count);
 
         for (endpoint, startpoint) in some_chains {
+            let startpoint: Vec<u8> = into_password(*startpoint, &self.ctx).into_iter().collect();
+            let endpoint: Vec<u8> = into_password(*endpoint, &self.ctx).into_iter().collect();
+
             writeln!(
                 f,
                 "{} -> {}",
-                core::str::from_utf8(&startpoint.into_password(&self.ctx)).unwrap(),
-                core::str::from_utf8(&endpoint.into_password(&self.ctx)).unwrap(),
+                core::str::from_utf8(&startpoint).unwrap(),
+                core::str::from_utf8(&endpoint).unwrap()
             )?;
         }
         writeln!(f, "...")

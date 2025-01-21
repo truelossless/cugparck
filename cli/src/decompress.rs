@@ -1,26 +1,24 @@
-use crate::{create_dir_to_store_tables, load_tables_from_dir, Decompress};
+use crate::{create_dir_to_store_tables, get_table_paths_from_dir, Decompress};
 
-use anyhow::{ensure, Context, Result};
-use cugparck_cpu::{
-    CompressedTable, Deserialize, Infallible, RainbowTable, RainbowTableStorage, SimpleTable,
-};
+use anyhow::{ensure, Result};
+use cugparck_cpu::{CompressedTable, RainbowTable, SimpleTable};
 
 pub fn decompress(args: Decompress) -> Result<()> {
     create_dir_to_store_tables(&args.out_dir)?;
 
-    let (mmaps, is_compressed) = load_tables_from_dir(&args.in_dir)?;
+    let (table_paths, is_compressed) = get_table_paths_from_dir(&args.in_dir)?;
 
     ensure!(is_compressed, "The tables are already decompressed");
 
-    for mmap in mmaps {
-        let ar = CompressedTable::load(&mmap)?;
-        let path = args.out_dir.join(format!("table_{}.rt", ar.ctx().tn));
+    for table_path in table_paths {
+        let compressed_table = CompressedTable::load(&table_path)?;
+        let out_path = args
+            .out_dir
+            .join(format!("table_{}.rt", compressed_table.ctx().tn));
 
-        let table: CompressedTable = ar
-            .deserialize(&mut Infallible)
-            .context("Unable to deserialize the rainbow table")?;
-
-        table.into_rainbow_table::<SimpleTable>().store(&path)?;
+        compressed_table
+            .into_rainbow_table::<SimpleTable>()
+            .store(&out_path)?;
     }
 
     Ok(())

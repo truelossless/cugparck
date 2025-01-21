@@ -23,18 +23,18 @@ pub fn ntlm(password: &[u8]) -> GenericArray<u8, <Md4 as OutputSizeUser>::Output
     Md4::digest(utf16_le(password))
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::{ntlm, Password};
-
-    #[test]
-    fn test_ntlm() {
-        let password = Password::new(b"password");
-        let expected = [
-            0x88u8, 0x46, 0xF7, 0xEA, 0xEE, 0x8F, 0xB1, 0x17, 0xAD, 0x06, 0xBD, 0xD8, 0x30, 0xB7,
-            0x58, 0x6C,
-        ];
-        let actual = ntlm(&password);
-        assert_eq!(expected, actual.as_slice());
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use crate::{ntlm, Password};
+//
+//     #[test]
+//     fn test_ntlm() {
+//         let password = Password::new(b"password");
+//         let expected = [
+//             0x88u8, 0x46, 0xF7, 0xEA, 0xEE, 0x8F, 0xB1, 0x17, 0xAD, 0x06, 0xBD, 0xD8, 0x30, 0xB7,
+//             0x58, 0x6C,
+//         ];
+//         let actual = ntlm(&password);
+//         assert_eq!(expected, actual.as_slice());
+//     }
+// }

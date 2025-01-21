@@ -15,7 +15,7 @@ use anyhow::{ensure, Context, Result};
 use cbc::Decryptor;
 use comfy_table::{presets::UTF8_BORDERS_ONLY, Cell, Color, Table};
 use crossterm::style::Stylize;
-use cugparck_commons::{Digest, Password};
+use cugparck_core::{Digest, Password};
 use des::Des;
 use md5::{Digest as _, Md5};
 use nt_hive::{Hive, KeyNode, NtHiveError, NtHiveNameString};

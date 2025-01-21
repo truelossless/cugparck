@@ -4,11 +4,10 @@ version = "0.4.3"
 edition = "2021"
 
 [dependencies]
-cugparck-commons = { path = "../commons" }
+cugparck-core = { path = "../core" }
 cugparck-cpu = { path = "../cpu" }
 anyhow = "1.0.58"
 sysinfo = "0.25.2"
-memmap2 = "0.5.7"
 hex = "0.4.3"
 clap = { version = "3.2.8", features = ["derive"] }
 indicatif = "0.17.0"
@@ -20,6 +19,4 @@ rc4 = "0.1.0"
 des = "0.8.1"
 aes = "0.8.1"
 cbc = "0.1.2"
-
-[features]
-cuda = ["cugparck-cpu/cuda"]
+bincode = "1.3.3"

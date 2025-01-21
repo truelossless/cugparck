@@ -2,11 +2,11 @@ mod attack;
 mod compress;
 mod decompress;
 mod generate;
-mod stealdows;
+// mod stealdows;
 
 use std::{
-    collections::HashSet,
     fs::{self, File},
+    io::BufReader,
     path::{Path, PathBuf},
     string::String,
 };
@@ -16,18 +16,17 @@ use clap::{clap_derive::ArgEnum, value_parser, Args, Parser, Subcommand};
 use anyhow::{ensure, Context, Result};
 
 use crossterm::style::{style, Color, Stylize};
-use cugparck_commons::{
+use cugparck_core::{
     Digest, HashType, Password, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET,
     DEFAULT_MAX_PASSWORD_LENGTH,
 };
-use cugparck_cpu::{CompressedTable, RainbowTable, RainbowTableStorage, SimpleTable, TableCluster};
+use cugparck_cpu::{CompressedTable, RainbowTable, SimpleTable, TableCluster};
 
 use attack::attack;
 use compress::compress;
 use decompress::decompress;
 use generate::generate;
-use memmap2::Mmap;
-use stealdows::stealdows;
+// use stealdows::stealdows;
 
 /// All the hash types supported.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum)]
@@ -69,30 +68,9 @@ impl From<HashTypeArg> for HashType {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum, Default)]
 pub enum AvailableBackend {
-    #[cfg_attr(not(any(feature = "cuda", feature = "wgpu")), default)]
-    Cpu,
-    #[cfg(feature = "cuda")]
-    #[cfg_attr(feature = "cuda", default)]
+    #[default]
     Cuda,
-    #[cfg_attr(
-        all(
-            feature = "wgpu",
-            not(feature = "cuda"),
-            any(target_os = "linux", target_os = "windows")
-        ),
-        default
-    )]
-    #[cfg(all(feature = "wgpu", any(target_os = "windows", target_os = "linux")))]
-    Vulkan,
-    #[cfg(all(feature = "wgpu", target_os = "windows"))]
-    Dx12,
-    #[cfg(all(feature = "wgpu", target_os = "windows"))]
-    Dx11,
-    #[cfg_attr(all(feature = "wgpu", target_os = "macos"), default)]
-    #[cfg(all(feature = "wgpu", target_os = "macos"))]
-    Metal,
-    #[cfg(all(feature = "wgpu", target_os = "linux"))]
-    OpenGL,
+    Wgpu,
 }
 
 /// Cugparck is a modern rainbow table library & CLI.
@@ -213,7 +191,7 @@ pub struct Generate {
     /// The number of startpoints to use.
     /// Prefer using alpha if you don't know what you're doing.
     #[clap(short, long, value_parser = value_parser!(u64).range(1..), group = "startpoint")]
-    startpoints: Option<usize>,
+    startpoints: Option<u64>,
 }
 
 /// Dump and crack NTLM hashes from Windows accounts.
@@ -292,7 +270,7 @@ fn try_main() -> Result<()> {
         Commands::Generate(args) => generate(args)?,
         Commands::Compress(args) => compress(args)?,
         Commands::Decompress(args) => decompress(args)?,
-        Commands::Stealdows(args) => stealdows(args)?,
+        Commands::Stealdows(args) => todo!(),
     }
 
     Ok(())
@@ -304,12 +282,12 @@ fn create_dir_to_store_tables(dir: &Path) -> Result<()> {
         .context("Unable to create the specified directory to store the rainbow tables")
 }
 
-/// Helper function to load rainbow tables from a directory.
-/// Returns a vector of memory mapped rainbow tables and true if the tables loaded are compressed.
-fn load_tables_from_dir(dir: &Path) -> Result<(Vec<Mmap>, bool)> {
-    let mut mmaps = Vec::new();
+/// Helper function to get the table paths from a directory.
+/// Returns a list of paths and true if these tables are compressed.
+fn get_table_paths_from_dir(dir: &Path) -> Result<(Vec<PathBuf>, bool)> {
     let mut is_simple_tables = false;
     let mut is_compressed_tables = false;
+    let mut table_paths = Vec::new();
 
     for file in fs::read_dir(&dir).context("Unable to open the specified directory")? {
         let file = file?;
@@ -324,13 +302,13 @@ fn load_tables_from_dir(dir: &Path) -> Result<(Vec<Mmap>, bool)> {
             _ => continue,
         };
 
-        let file = File::open(file.path()).context("Unable to open a rainbow table")?;
-
-        // SAFETY: the file exists and is not being modified anywhere else.
-        unsafe { mmaps.push(Mmap::map(&file)?) };
+        table_paths.push(file.path());
     }
 
-    ensure!(!mmaps.is_empty(), "No table found in the given directory");
+    ensure!(
+        !table_paths.is_empty(),
+        "No table found in the given directory"
+    );
 
     ensure!(
         !(is_simple_tables && is_compressed_tables),
@@ -339,36 +317,36 @@ fn load_tables_from_dir(dir: &Path) -> Result<(Vec<Mmap>, bool)> {
 
     // check that the tables in the directory are all compatible.
     // since we're mmaping our files, we shouldn't run out of memory.
-    let all_ctx = if is_compressed_tables {
-        mmaps
-            .iter()
-            .map(|mmap| Ok(CompressedTable::load(mmap)?.ctx()))
-            .collect::<Result<Vec<_>>>()?
-    } else {
-        mmaps
-            .iter()
-            .map(|mmap| Ok(SimpleTable::load(mmap)?.ctx()))
-            .collect::<Result<Vec<_>>>()?
-    };
+    // let all_ctx = if is_compressed_tables {
+    //     tables
+    //         .iter()
+    //         .map(|table| Ok(CompressedTable::load(mmap)?.ctx()))
+    //         .collect::<Result<Vec<_>>>()?
+    // } else {
+    //     tables
+    //         .iter()
+    //         .map(|mmap| Ok(SimpleTable::load(mmap)?.ctx()))
+    //         .collect::<Result<Vec<_>>>()?
+    // };
+    //
+    // let table_numbers = all_ctx.iter().map(|ctx| ctx.tn).collect::<HashSet<_>>();
 
-    let table_numbers = all_ctx.iter().map(|ctx| ctx.tn).collect::<HashSet<_>>();
+    // ensure!(
+    //     table_numbers.len() == tables.len(),
+    //     "All tables in the directory should have a different table number",
+    // );
 
-    ensure!(
-        table_numbers.len() == mmaps.len(),
-        "All tables in the directory should have a different table number",
-    );
+    // let ctx_spaces_and_hash_types = all_ctx
+    //     .iter()
+    //     .map(|ctx| (ctx.charset, ctx.max_password_length, ctx.hash_type))
+    //     .collect::<HashSet<_>>();
+    //
+    // ensure!(
+    //     ctx_spaces_and_hash_types.len() == 1,
+    //     "All tables in the directory should use the same charset, maximum password length and hash function"
+    // );
 
-    let ctx_spaces_and_hash_types = all_ctx
-        .iter()
-        .map(|ctx| (ctx.charset, ctx.max_password_length, ctx.hash_type))
-        .collect::<HashSet<_>>();
-
-    ensure!(
-        ctx_spaces_and_hash_types.len() == 1,
-        "All tables in the directory should use the same charset, maximum password length and hash function"
-    );
-
-    Ok((mmaps, is_compressed_tables))
+    Ok((table_paths, is_compressed_tables))
 }
 
 /// Searches for a digest from the tables at a given path, table after table.
@@ -376,14 +354,14 @@ fn load_tables_from_dir(dir: &Path) -> Result<(Vec<Mmap>, bool)> {
 /// This slows the search but saves memory.
 fn search_tables(
     digest: Digest,
-    mmaps: &[Mmap],
+    table_paths: &[PathBuf],
     is_compressed: bool,
     low_memory: bool,
 ) -> Result<Option<Password>> {
     match (is_compressed, low_memory) {
         (true, true) => {
-            for mmap in mmaps {
-                if let Some(digest) = CompressedTable::load(mmap)?.search(digest) {
+            for table_path in table_paths {
+                if let Some(digest) = CompressedTable::load(table_path)?.search(&digest) {
                     return Ok(Some(digest));
                 }
             }
@@ -392,7 +370,7 @@ fn search_tables(
         }
 
         (true, false) => {
-            let tables = mmaps
+            let tables = table_paths
                 .iter()
                 .map(|mmap| CompressedTable::load(mmap))
                 .collect::<Result<Vec<_>, _>>()?;
@@ -401,8 +379,8 @@ fn search_tables(
         }
 
         (false, true) => {
-            for mmap in mmaps {
-                if let Some(digest) = SimpleTable::load(mmap)?.search(digest) {
+            for table_path in table_paths {
+                if let Some(digest) = SimpleTable::load(table_path)?.search(&digest) {
                     return Ok(Some(digest));
                 }
             }
@@ -411,7 +389,7 @@ fn search_tables(
         }
 
         (false, false) => {
-            let tables = mmaps
+            let tables = table_paths
                 .iter()
                 .map(|mmap| SimpleTable::load(mmap))
                 .collect::<Result<Vec<_>, _>>()?;

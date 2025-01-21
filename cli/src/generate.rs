@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use cugparck_cpu::{
-    backend, CompressedTable, Event, RainbowTable, RainbowTableCtxBuilder, RainbowTableStorage,
-    SimpleTable,
+    CompressedTable, CudaRuntime, Event, RainbowTable, RainbowTableCtxBuilder, SimpleTable,
+    WgpuRuntime,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -18,28 +18,17 @@ pub fn generate(args: Generate) -> Result<()> {
         .hash(args.hash_type.into())
         .alpha(args.alpha)
         .startpoints(args.startpoints)
-        .chain_length(args.chain_length as usize)
+        .chain_length(args.chain_length)
         .charset(args.charset.as_bytes())
         .max_password_length(args.max_password_length);
 
     for i in args.start_from..args.start_from + args.table_count {
-        let ctx = ctx_builder.table_number(i).build()?;
+        let ctx = ctx_builder.clone().table_number(i).build()?;
         let table_path = args.dir.clone().join(format!("table_{i}.{ext}"));
 
         let table_handle = match args.backend {
-            AvailableBackend::Cpu => SimpleTable::new_nonblocking::<backend::Cpu>(ctx)?,
-            #[cfg(feature = "cuda")]
-            AvailableBackend::Cuda => SimpleTable::new_nonblocking::<backend::Cuda>(ctx)?,
-            #[cfg(all(feature = "wgpu", any(target_os = "windows", target_os = "linux")))]
-            AvailableBackend::Vulkan => SimpleTable::new_nonblocking::<backend::Vulkan>(ctx)?,
-            #[cfg(all(feature = "wgpu", target_os = "windows"))]
-            AvailableBackend::Dx12 => SimpleTable::new_nonblocking::<backend::Dx12>(ctx)?,
-            #[cfg(all(feature = "wgpu", target_os = "windows"))]
-            AvailableBackend::Dx11 => SimpleTable::new_nonblocking::<backend::Dx11>(ctx)?,
-            #[cfg(all(feature = "wgpu", target_os = "macos"))]
-            AvailableBackend::Metal => SimpleTable::new_nonblocking::<backend::Metal>(ctx)?,
-            #[cfg(all(feature = "wgpu", target_os = "linux"))]
-            AvailableBackend::OpenGL => SimpleTable::new_nonblocking::<backend::OpenGL>(ctx)?,
+            AvailableBackend::Wgpu => SimpleTable::new_nonblocking::<WgpuRuntime>(ctx)?,
+            AvailableBackend::Cuda => SimpleTable::new_nonblocking::<CudaRuntime>(ctx)?,
         };
 
         println!("Generating table {i}");

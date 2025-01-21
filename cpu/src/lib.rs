@@ -1,27 +1,23 @@
-#![feature(generic_associated_types)]
-
-#[cfg(feature = "wgpu")]
-extern crate wgpu_crate as wgpu;
-
-pub mod backend;
+mod batch;
 mod error;
 mod event;
 mod rainbow_table;
-mod renderer;
 mod table_cluster;
 
 pub use {
+    cubecl::cuda::CudaRuntime,
+    cubecl::wgpu::WgpuRuntime,
     error::CugparckError,
     event::{Event, SimpleTableHandle},
-    rainbow_table::{CompressedTable, RainbowTable, RainbowTableStorage, SimpleTable},
-    rkyv::{Deserialize, Infallible, Serialize},
+    rainbow_table::{CompressedTable, RainbowTable, SimpleTable},
     table_cluster::TableCluster,
 };
 
 use std::ops::Range;
 
-use cugparck_commons::{
-    ArrayVec, HashType, RainbowTableCtx, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET,
+use cubecl::prelude::*;
+use cugparck_core::{
+    HashType, RainbowTableCtx, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET,
     DEFAULT_FILTER_COUNT, DEFAULT_MAX_PASSWORD_LENGTH, DEFAULT_TABLE_NUMBER,
     MAX_CHARSET_LENGTH_ALLOWED,
 };
@@ -29,14 +25,14 @@ use cugparck_commons::{
 use error::CugparckResult;
 
 /// A builder for a rainbow table context.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct RainbowTableCtxBuilder {
     hash_type: HashType,
-    charset: ArrayVec<[u8; MAX_CHARSET_LENGTH_ALLOWED]>,
-    t: usize,
-    tn: usize,
-    max_password_length: usize,
-    m0: Option<usize>,
+    charset: Vec<u8>,
+    t: u64,
+    tn: u8,
+    max_password_length: u8,
+    m0: Option<u64>,
     alpha: f64,
 }
 
@@ -45,9 +41,9 @@ impl Default for RainbowTableCtxBuilder {
         Self {
             hash_type: HashType::Ntlm,
             charset: DEFAULT_CHARSET.try_into().unwrap(),
-            max_password_length: DEFAULT_MAX_PASSWORD_LENGTH as usize,
+            max_password_length: DEFAULT_MAX_PASSWORD_LENGTH,
             t: DEFAULT_CHAIN_LENGTH,
-            tn: DEFAULT_TABLE_NUMBER as usize,
+            tn: DEFAULT_TABLE_NUMBER,
             m0: None,
             alpha: DEFAULT_APLHA,
         }
@@ -79,7 +75,7 @@ impl RainbowTableCtxBuilder {
     /// Sets the length of the chain of the context.
     /// Increasing the chain length will reduce the memory used
     /// to store the table but increase the time taken to attack.
-    pub fn chain_length(mut self, chain_length: usize) -> Self {
+    pub fn chain_length(mut self, chain_length: u64) -> Self {
         self.t = chain_length;
 
         self
@@ -87,7 +83,7 @@ impl RainbowTableCtxBuilder {
 
     /// Sets the maximum password length of the context.
     pub fn max_password_length(mut self, max_password_length: u8) -> Self {
-        self.max_password_length = max_password_length as usize;
+        self.max_password_length = max_password_length;
 
         self
     }
@@ -95,7 +91,7 @@ impl RainbowTableCtxBuilder {
     /// Sets the table number of the context.
     /// Table numbers are 1-indexed.
     pub fn table_number(mut self, table_number: u8) -> Self {
-        self.tn = table_number as usize;
+        self.tn = table_number;
 
         self
     }
@@ -103,7 +99,7 @@ impl RainbowTableCtxBuilder {
     /// Sets the number of startpoints of the context.
     /// It is not recommended to use this method directly unless you know what you are doing.
     /// Prefer using `RainbowTableCtxBuilder::alpha`.
-    pub fn startpoints(mut self, startpoints: Option<usize>) -> Self {
+    pub fn startpoints(mut self, startpoints: Option<u64>) -> Self {
         self.m0 = startpoints;
 
         self
@@ -122,12 +118,12 @@ impl RainbowTableCtxBuilder {
     pub fn build(mut self) -> CugparckResult<RainbowTableCtx> {
         // create the search spaces
         let mut n: u128 = 0;
-        let mut search_spaces = ArrayVec::new();
+        let mut search_spaces = Sequence::new();
 
-        search_spaces.push(n as usize);
+        search_spaces.push(n as u64);
         for i in 0..self.max_password_length {
             n += self.charset.len().pow(i as u32) as u128;
-            search_spaces.push(n as usize);
+            search_spaces.push(n as u64);
         }
         n += self.charset.len().pow(self.max_password_length as u32) as u128;
 
@@ -136,7 +132,7 @@ impl RainbowTableCtxBuilder {
             return Err(CugparckError::Space((n as f64).log2().ceil() as u8));
         }
 
-        let n = n as usize;
+        let n = n as u64;
 
         // find the number of startpoints
         let m0 = if let Some(m0) = self.m0 {
@@ -148,18 +144,21 @@ impl RainbowTableCtxBuilder {
                 n
             } else {
                 let m0 = (DEFAULT_APLHA / (1. - DEFAULT_APLHA) * mtmax) as f64;
-                m0.clamp(1., n as f64) as usize
+                m0.clamp(1., n as f64) as u64
             }
         };
 
         self.charset.sort_unstable();
+        let mut charset = Sequence::new();
+        for c in self.charset {
+            charset.push(c);
+        }
 
         Ok(RainbowTableCtx {
             search_spaces,
             m0,
             n,
-            hash_type: self.hash_type,
-            charset: self.charset,
+            charset,
             max_password_length: self.max_password_length,
             t: self.t,
             tn: self.tn,
@@ -199,7 +198,7 @@ impl Iterator for FiltrationIterator {
     fn next(&mut self) -> Option<Self::Item> {
         if self.i == DEFAULT_FILTER_COUNT {
             self.i += 1;
-            return Some(self.current_col..self.ctx.t - 1);
+            return Some(self.current_col as usize..self.ctx.t as usize - 1);
         } else if self.i >= DEFAULT_FILTER_COUNT {
             return None;
         }

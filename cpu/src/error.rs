@@ -5,16 +5,8 @@ pub type CugparckResult<T> = std::result::Result<T, CugparckError>;
 
 #[derive(Error, Debug)]
 pub enum CugparckError {
-    #[cfg(feature = "wgpu")]
-    #[error("An error occured inside of wgpu")]
-    BufferAsync(#[from] wgpu::BufferAsyncError),
-
-    #[error("Failed to validate the rainbow table. Is the file corrupted?")]
-    Check,
-
-    #[cfg(feature = "cuda")]
-    #[error("A CUDA-related error occured")]
-    Cuda(#[from] cust::error::CudaError),
+    #[error("Failed to deserialize the rainbow table. Is the file corrupted?")]
+    Deserialize,
 
     #[error(
         "Unable to access the file at the given path. Make sure the right permissions are available"

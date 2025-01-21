@@ -10,8 +10,8 @@ pub enum Event {
     Progress(f64),
     /// The nth batch of chains is being computed.
     Batch {
-        batch_number: usize,
-        batch_count: usize,
+        batch_number: u64,
+        batch_count: u64,
         columns: Range<usize>,
     },
 }
