@@ -9,7 +9,8 @@ use crate::{
 use crossbeam_channel::{unbounded, Sender};
 use cubecl::prelude::*;
 use cugparck_core::{
-    into_password, CompressedPassword, RainbowChain, RainbowTableCtx, RainbowTableCtxLaunch,
+    CompressedPassword, ComptimeGpuCtx, RainbowChain, RainbowTableCtx, RuntimeGpuCtxLaunch,
+    MAX_DIGEST_LENGTH_ALLOWED,
 };
 use cugparck_cubecl::chains_kernel;
 use indexmap::{map::Iter, IndexMap};
@@ -110,68 +111,61 @@ impl SimpleTable {
                         .unwrap();
                 }
 
-                let batch = &mut midpoints[batch_info.range.clone()];
+                let batch = &mut midpoints[dbg!(batch_info.range.clone())];
                 let batch_handle = client.create(u64::as_bytes(batch));
 
                 // run the kernel
                 unsafe {
                     let batch_arg = ArrayArg::from_raw_parts::<u64>(&batch_handle, batch.len(), 1);
+                    let charset_handle = client.create(u8::as_bytes(&ctx.charset));
+                    let charset_arg =
+                        ArrayArg::from_raw_parts::<u8>(&charset_handle, ctx.charset.len(), 1);
 
-                    // let charset_arg = ctx.charset.into();
-                    // let charset_handle = client.create(u8::as_bytes(&charset_vec));
-                    // let charset_arg = SequenceArg::from_raw_parts::<u8>(
-                    //     &charset_handle,
-                    //     ctx.charset.len() as usize,
-                    //     1,
-                    // );
+                    let search_spaces_handle = client.create(u64::as_bytes(&ctx.search_spaces));
+                    let search_spaces_arg = ArrayArg::from_raw_parts::<u64>(
+                        &search_spaces_handle,
+                        ctx.search_spaces.len(),
+                        1,
+                    );
 
-                    let mut charset_arg = SequenceArg::new();
-                    charset_arg.push(ScalarArg::new(b'a'));
-                    charset_arg.push(ScalarArg::new(b'b'));
-                    charset_arg.push(ScalarArg::new(b'c'));
-                    charset_arg.push(ScalarArg::new(b'd'));
-
-                    // let search_spaces_vec: Vec<u64> = ctx.search_spaces.into_iter().collect();
-                    // let search_spaces_handle = client.create(u64::as_bytes(&search_spaces_vec));
-                    // let search_spaces_arg = ArrayArg::from_raw_parts::<u64>(
-                    //     &search_spaces_handle,
-                    //     ctx.search_spaces.len() as usize,
-                    //     1,
-                    // );
-
-                    let mut search_spaces_arg = SequenceArg::new();
-                    for search_space in ctx.search_spaces.clone() {
-                        search_spaces_arg.push(ScalarArg::new(search_space));
-                    }
-
-                    let launch_ctx = RainbowTableCtxLaunch::new(
+                    let runtime_ctx = RuntimeGpuCtxLaunch::new(
                         ScalarArg::new(ctx.m0),
                         charset_arg,
                         ScalarArg::new(ctx.t),
-                        ScalarArg::new(ctx.max_password_length),
                         ScalarArg::new(ctx.n),
                         search_spaces_arg,
                         ScalarArg::new(ctx.tn),
                     );
 
+                    let comptime_ctx = ComptimeGpuCtx {
+                        digest_size: MAX_DIGEST_LENGTH_ALLOWED,
+                        max_password_length: ctx.max_password_length,
+                        hash_type: ctx.hash_type,
+                    };
+
                     // TODO: fix dims
                     chains_kernel::launch_unchecked::<Backend>(
                         &client,
-                        CubeCount::Static(1, 1, 1),
-                        CubeDim::new(batch.len() as u32, 1, 1),
+                        CubeCount::Static(batch_info.block_count, 1, 1),
+                        CubeDim::new(dbg!(batch_info.thread_count), 1, 1),
                         batch_arg,
                         ScalarArg::new(columns.start as u64),
                         ScalarArg::new(columns.end as u64),
-                        launch_ctx,
+                        runtime_ctx,
+                        comptime_ctx,
                     );
                 }
 
                 let batch_output = client.read_one(batch_handle.binding());
+                dbg!("casting");
+                let batch_midpoints = CompressedPassword::from_bytes(&batch_output);
+                dbg!("extending");
                 unique_chains.par_extend(
-                    CompressedPassword::from_bytes(&batch_output)
+                    startpoints[batch_info.range.clone()]
                         .par_iter()
-                        .zip(startpoints[batch_info.range.clone()].par_iter()),
+                        .zip(batch_midpoints.par_iter()),
                 );
+                dbg!(unique_chains.iter().take(100).collect::<Vec<_>>());
 
                 if let Some(sender) = &sender {
                     let batch_percent = batch_number as f64 / batch_count as f64;
@@ -253,14 +247,18 @@ impl Iterator for SimpleTableIterator<'_> {
     }
 }
 
-impl std::fmt::Debug for SimpleTable {
+/* impl std::fmt::Debug for SimpleTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let chains_count = self.chains.len().min(10);
         let some_chains = self.chains.iter().take(chains_count);
 
         for (endpoint, startpoint) in some_chains {
-            let startpoint: Vec<u8> = into_password(*startpoint, &self.ctx).into_iter().collect();
-            let endpoint: Vec<u8> = into_password(*endpoint, &self.ctx).into_iter().collect();
+            let startpoint: Vec<u8> = into_gpu_password(*startpoint, &self.ctx)
+                .into_iter()
+                .collect();
+            let endpoint: Vec<u8> = into_gpu_password(*endpoint, &self.ctx)
+                .into_iter()
+                .collect();
 
             writeln!(
                 f,
@@ -271,4 +269,4 @@ impl std::fmt::Debug for SimpleTable {
         }
         writeln!(f, "...")
     }
-}
+} */

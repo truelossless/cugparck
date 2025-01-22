@@ -15,11 +15,9 @@ pub use {
 
 use std::ops::Range;
 
-use cubecl::prelude::*;
 use cugparck_core::{
     HashType, RainbowTableCtx, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET,
     DEFAULT_FILTER_COUNT, DEFAULT_MAX_PASSWORD_LENGTH, DEFAULT_TABLE_NUMBER,
-    MAX_CHARSET_LENGTH_ALLOWED,
 };
 
 use error::CugparckResult;
@@ -40,7 +38,7 @@ impl Default for RainbowTableCtxBuilder {
     fn default() -> Self {
         Self {
             hash_type: HashType::Ntlm,
-            charset: DEFAULT_CHARSET.try_into().unwrap(),
+            charset: DEFAULT_CHARSET.to_owned(),
             max_password_length: DEFAULT_MAX_PASSWORD_LENGTH,
             t: DEFAULT_CHAIN_LENGTH,
             tn: DEFAULT_TABLE_NUMBER,
@@ -65,9 +63,7 @@ impl RainbowTableCtxBuilder {
 
     /// Sets the charset of the context.
     pub fn charset(mut self, charset: &[u8]) -> Self {
-        self.charset = charset.try_into().expect(&format!(
-            "Charset should be < {MAX_CHARSET_LENGTH_ALLOWED} chars"
-        ));
+        self.charset = charset.to_owned();
 
         self
     }
@@ -118,7 +114,7 @@ impl RainbowTableCtxBuilder {
     pub fn build(mut self) -> CugparckResult<RainbowTableCtx> {
         // create the search spaces
         let mut n: u128 = 0;
-        let mut search_spaces = Sequence::new();
+        let mut search_spaces = Vec::new();
 
         search_spaces.push(n as u64);
         for i in 0..self.max_password_length {
@@ -128,7 +124,7 @@ impl RainbowTableCtxBuilder {
         n += self.charset.len().pow(self.max_password_length as u32) as u128;
 
         // make sure the search space is <= 2^64
-        if n > usize::MAX as u128 {
+        if n > u64::MAX as u128 {
             return Err(CugparckError::Space((n as f64).log2().ceil() as u8));
         }
 
@@ -143,22 +139,19 @@ impl RainbowTableCtxBuilder {
             if self.alpha == 1. {
                 n
             } else {
-                let m0 = (DEFAULT_APLHA / (1. - DEFAULT_APLHA) * mtmax) as f64;
+                let m0 = DEFAULT_APLHA / (1. - DEFAULT_APLHA) * mtmax;
                 m0.clamp(1., n as f64) as u64
             }
         };
 
         self.charset.sort_unstable();
-        let mut charset = Sequence::new();
-        for c in self.charset {
-            charset.push(c);
-        }
 
         Ok(RainbowTableCtx {
             search_spaces,
             m0,
+            hash_type: self.hash_type,
             n,
-            charset,
+            charset: self.charset,
             max_password_length: self.max_password_length,
             t: self.t,
             tn: self.tn,
@@ -198,7 +191,7 @@ impl Iterator for FiltrationIterator {
     fn next(&mut self) -> Option<Self::Item> {
         if self.i == DEFAULT_FILTER_COUNT {
             self.i += 1;
-            return Some(self.current_col as usize..self.ctx.t as usize - 1);
+            return Some(self.current_col..self.ctx.t as usize - 1);
         } else if self.i >= DEFAULT_FILTER_COUNT {
             return None;
         }

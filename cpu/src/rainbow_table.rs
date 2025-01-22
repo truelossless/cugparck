@@ -13,7 +13,7 @@ pub use {compressed_delta_encoding::CompressedTable, simple::SimpleTable};
 
 use cubecl::prelude::Array;
 use cugparck_core::{
-    into_password, reduce, CompressedPassword, Digest, Password, RainbowChain, RainbowTableCtx,
+    into_gpu_password, reduce, CompressedPassword, Digest, Password, RainbowChain, RainbowTableCtx,
     MAX_DIGEST_LENGTH_ALLOWED,
 };
 use rayon::prelude::*;
@@ -42,7 +42,7 @@ pub trait RainbowTable: Sized + Sync + Serialize + for<'a> Deserialize<'a> {
     /// Returns startpoint of the chain if the password was found in the endpoints.
     fn search_endpoints(&self, password: CompressedPassword) -> Option<CompressedPassword>;
 
-    /// Searches for a password in a given column.
+    /*     /// Searches for a password in a given column.
     #[inline]
     fn search_column(&self, column: u64, digest: &Digest) -> Option<Password> {
         let ctx = self.ctx();
@@ -54,7 +54,7 @@ pub trait RainbowTable: Sized + Sync + Serialize + for<'a> Deserialize<'a> {
         // get the reduction corresponding to the current column
         for k in column..ctx.t - 2 {
             column_counter = reduce(column_digest, k, &ctx);
-            let column_plaintext = into_password(column_counter, &ctx);
+            let column_plaintext = into_gpu_password(column_counter, &ctx);
             // TODO: impl hash
             // column_digest = hash(column_plaintext);
         }
@@ -62,7 +62,7 @@ pub trait RainbowTable: Sized + Sync + Serialize + for<'a> Deserialize<'a> {
 
         let mut chain_plaintext = match self.search_endpoints(column_counter) {
             None => return None,
-            Some(found) => into_password(found, &ctx),
+            Some(found) => into_gpu_password(found, &ctx),
         };
         let chain_digest = Array::new(MAX_DIGEST_LENGTH_ALLOWED);
 
@@ -71,7 +71,7 @@ pub trait RainbowTable: Sized + Sync + Serialize + for<'a> Deserialize<'a> {
             // TODO: impl hash
             // chain_digest = hash(chain_plaintext);
             let chain_counter = reduce(&chain_digest, k, &ctx);
-            chain_plaintext = into_password(chain_counter, &ctx);
+            chain_plaintext = into_gpu_password(chain_counter, &ctx);
         }
         // TODO: impl hash
         // chain_digest = hash(chain_plaintext);
@@ -90,9 +90,9 @@ pub trait RainbowTable: Sized + Sync + Serialize + for<'a> Deserialize<'a> {
         // } else {
         //     None
         // }
-    }
+    } */
 
-    /// Searches for a password that hashes to the given digest.
+    /*     /// Searches for a password that hashes to the given digest.
     fn search(&self, digest: &Digest) -> Option<Password> {
         let ctx = self.ctx();
         // we use Range<usize> because Range<u64> doesn't implement IndexedParallelIterator.
@@ -100,7 +100,7 @@ pub trait RainbowTable: Sized + Sync + Serialize + for<'a> Deserialize<'a> {
             .into_par_iter()
             .rev()
             .find_map_any(|i| self.search_column(i as u64, digest))
-    }
+    } */
 
     /// Returns the context.
     fn ctx(&self) -> RainbowTableCtx;

@@ -7,6 +7,3 @@ codegen-units = 1
 resolver = "2"
 
 members = ["cli", "core", "cpu", "cubecl"]
-
-[patch.crates-io]
-indexmap = { git = "https://github.com/truelossless/indexmap" }

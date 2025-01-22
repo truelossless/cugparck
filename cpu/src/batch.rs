@@ -23,14 +23,9 @@ pub struct BatchIterator {
 impl BatchIterator {
     /// Creates a new batch iterator where `chains_len` is the total number of chains to generate.
     pub fn new(chains_len: usize) -> CugparckResult<BatchIterator> {
-        // TODO: Memory estimate
-        // let device_memory = device.total_memory().unwrap() - 50_000;
-        //
-        // let kernel_memory = kernel.get_attribute(FunctionAttribute::LocalSizeBytes)? as usize;
-        // let kernels_per_batch = device_memory / kernel_memory;
-
         // number of batches to do
-        let mut batches = 5;
+        // TODO: better estimate
+        let mut batches = chains_len / 1_000_000_000;
 
         // don't forget the last batch since integer division is rounding down numbers
         let (batch_size, last_batch_size) = if batches == 0 {
@@ -66,7 +61,7 @@ impl Iterator for BatchIterator {
             self.batch_size
         };
 
-        let block_count = ((size as u32 + self.thread_count - 1) / self.thread_count).max(1);
+        let block_count = (size as u32).div_ceil(self.thread_count).max(1);
         let range = self.batch_number * self.batch_size..self.batch_number * self.batch_size + size;
 
         let batch_info = BatchInfo {

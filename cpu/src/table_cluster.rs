@@ -15,7 +15,7 @@ impl<'a, T: RainbowTable> TableCluster<'a, T> {
         Self { tables }
     }
 
-    /// Searches for a password in the table cluster.
+    /*     /// Searches for a password in the table cluster.
     pub fn search(&self, digest: Digest) -> Option<Password> {
         let t = self.tables[0].ctx().t as usize;
 
@@ -24,7 +24,7 @@ impl<'a, T: RainbowTable> TableCluster<'a, T> {
                 .iter()
                 .find_map(|table| table.search_column(i as u64, &digest))
         })
-    }
+    } */
 }
 
 // #[cfg(test)]

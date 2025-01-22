@@ -13,7 +13,7 @@ use std::{
 
 use clap::{clap_derive::ArgEnum, value_parser, Args, Parser, Subcommand};
 
-use anyhow::{ensure, Context, Result};
+use anyhow::{ensure, Context, Ok, Result};
 
 use crossterm::style::{style, Color, Stylize};
 use cugparck_core::{
@@ -358,7 +358,7 @@ fn search_tables(
     is_compressed: bool,
     low_memory: bool,
 ) -> Result<Option<Password>> {
-    match (is_compressed, low_memory) {
+    /*     match (is_compressed, low_memory) {
         (true, true) => {
             for table_path in table_paths {
                 if let Some(digest) = CompressedTable::load(table_path)?.search(&digest) {
@@ -396,5 +396,7 @@ fn search_tables(
 
             Ok(TableCluster::new(&tables).search(digest))
         }
-    }
+    } */
+
+    Ok(None)
 }
