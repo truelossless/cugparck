@@ -54,7 +54,7 @@ impl<'a, T: RainbowTable> TableCluster<'a, T> {
 //
 //         let mut found = 0;
 //         let ctx = ctx_builder.build().unwrap();
-//         let hash = ctx.hash_type.hash_function();
+//         let hash = ctx.hash_function.hash_function();
 //
 //         for i in 0..ctx.n {
 //             let password = CompressedPassword::from(i).into_password(&ctx);

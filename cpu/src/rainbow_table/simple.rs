@@ -10,7 +10,6 @@ use crossbeam_channel::{unbounded, Sender};
 use cubecl::prelude::*;
 use cugparck_core::{
     CompressedPassword, ComptimeGpuCtx, RainbowChain, RainbowTableCtx, RuntimeGpuCtxLaunch,
-    MAX_DIGEST_LENGTH_ALLOWED,
 };
 use cugparck_cubecl::chains_kernel;
 use indexmap::{map::Iter, IndexMap};
@@ -86,10 +85,6 @@ impl SimpleTable {
             .try_reserve(ctx.m0 as usize)
             .map_err(|_| CugparckError::IndexMapOutOfMemory)?;
 
-        let mut batch_buf: Vec<CompressedPassword> = Vec::new();
-        // TODO: Fix memory
-        batch_buf.try_reserve_exact(1024 * 1024 * 1024)?;
-
         for columns in FiltrationIterator::new(ctx.clone()) {
             if !unique_chains.is_empty() {
                 unique_chains
@@ -128,22 +123,9 @@ impl SimpleTable {
                         1,
                     );
 
-                    let runtime_ctx = RuntimeGpuCtxLaunch::new(
-                        ScalarArg::new(ctx.m0),
-                        charset_arg,
-                        ScalarArg::new(ctx.t),
-                        ScalarArg::new(ctx.n),
-                        search_spaces_arg,
-                        ScalarArg::new(ctx.tn),
-                    );
+                    let (comptime_ctx, runtime_ctx) =
+                        ctx.to_comptime_runtime(charset_arg, search_spaces_arg);
 
-                    let comptime_ctx = ComptimeGpuCtx {
-                        digest_size: MAX_DIGEST_LENGTH_ALLOWED,
-                        max_password_length: ctx.max_password_length,
-                        hash_type: ctx.hash_type,
-                    };
-
-                    // TODO: fix dims
                     chains_kernel::launch_unchecked::<Backend>(
                         &client,
                         CubeCount::Static(batch_info.block_count, 1, 1),
@@ -159,11 +141,13 @@ impl SimpleTable {
                 let batch_output = client.read_one(batch_handle.binding());
                 dbg!("casting");
                 let batch_midpoints = CompressedPassword::from_bytes(&batch_output);
+                dbg!(batch_midpoints.iter().take(100).collect::<Vec<_>>());
                 dbg!("extending");
-                unique_chains.par_extend(
-                    startpoints[batch_info.range.clone()]
-                        .par_iter()
-                        .zip(batch_midpoints.par_iter()),
+
+                unique_chains.extend(
+                    batch_midpoints
+                        .iter()
+                        .zip(&startpoints[batch_info.range.clone()]),
                 );
                 dbg!(unique_chains.iter().take(100).collect::<Vec<_>>());
 

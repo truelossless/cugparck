@@ -17,7 +17,7 @@ use anyhow::{ensure, Context, Ok, Result};
 
 use crossterm::style::{style, Color, Stylize};
 use cugparck_core::{
-    Digest, HashType, Password, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET,
+    hash::HashFunction, Digest, Password, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET,
     DEFAULT_MAX_PASSWORD_LENGTH,
 };
 use cugparck_cpu::{CompressedTable, RainbowTable, SimpleTable, TableCluster};
@@ -30,7 +30,7 @@ use generate::generate;
 
 /// All the hash types supported.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum)]
-enum HashTypeArg {
+enum HashFunctionArg {
     Ntlm,
     Md4,
     Md5,
@@ -45,21 +45,21 @@ enum HashTypeArg {
     Sha3_512,
 }
 
-impl From<HashTypeArg> for HashType {
-    fn from(arg: HashTypeArg) -> Self {
+impl From<HashFunctionArg> for HashFunction {
+    fn from(arg: HashFunctionArg) -> Self {
         match arg {
-            HashTypeArg::Ntlm => HashType::Ntlm,
-            HashTypeArg::Md4 => HashType::Md4,
-            HashTypeArg::Md5 => HashType::Md5,
-            HashTypeArg::Sha1 => HashType::Sha1,
-            HashTypeArg::Sha2_224 => HashType::Sha2_224,
-            HashTypeArg::Sha2_256 => HashType::Sha2_256,
-            HashTypeArg::Sha2_384 => HashType::Sha2_384,
-            HashTypeArg::Sha2_512 => HashType::Sha2_512,
-            HashTypeArg::Sha3_224 => HashType::Sha3_224,
-            HashTypeArg::Sha3_256 => HashType::Sha3_256,
-            HashTypeArg::Sha3_384 => HashType::Sha3_384,
-            HashTypeArg::Sha3_512 => HashType::Sha3_512,
+            HashFunctionArg::Ntlm => HashFunction::Ntlm,
+            HashFunctionArg::Md4 => HashFunction::Md4,
+            HashFunctionArg::Md5 => HashFunction::Md5,
+            HashFunctionArg::Sha1 => HashFunction::Sha1,
+            HashFunctionArg::Sha2_224 => HashFunction::Sha2_224,
+            HashFunctionArg::Sha2_256 => HashFunction::Sha2_256,
+            HashFunctionArg::Sha2_384 => HashFunction::Sha2_384,
+            HashFunctionArg::Sha2_512 => HashFunction::Sha2_512,
+            HashFunctionArg::Sha3_224 => HashFunction::Sha3_224,
+            HashFunctionArg::Sha3_256 => HashFunction::Sha3_256,
+            HashFunctionArg::Sha3_384 => HashFunction::Sha3_384,
+            HashFunctionArg::Sha3_512 => HashFunction::Sha3_512,
         }
     }
 }
@@ -138,9 +138,9 @@ pub struct Decompress {
 /// Generate a rainbow table.
 #[derive(Args)]
 pub struct Generate {
-    /// The type of the hash.
+    /// The hash function to use.
     #[clap(value_parser)]
-    hash_type: HashTypeArg,
+    hash_function: HashFunctionArg,
 
     /// The directory where the generated table(s) should be stored.
     #[clap(value_parser)]
@@ -336,13 +336,13 @@ fn get_table_paths_from_dir(dir: &Path) -> Result<(Vec<PathBuf>, bool)> {
     //     "All tables in the directory should have a different table number",
     // );
 
-    // let ctx_spaces_and_hash_types = all_ctx
+    // let ctx_spaces_and_hash_functions = all_ctx
     //     .iter()
-    //     .map(|ctx| (ctx.charset, ctx.max_password_length, ctx.hash_type))
+    //     .map(|ctx| (ctx.charset, ctx.max_password_length, ctx.hash_function))
     //     .collect::<HashSet<_>>();
     //
     // ensure!(
-    //     ctx_spaces_and_hash_types.len() == 1,
+    //     ctx_spaces_and_hash_functions.len() == 1,
     //     "All tables in the directory should use the same charset, maximum password length and hash function"
     // );
 

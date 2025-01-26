@@ -15,7 +15,7 @@ pub fn generate(args: Generate) -> Result<()> {
     let ext = if args.compress { "rtcde" } else { "rt" };
 
     let ctx_builder = RainbowTableCtxBuilder::new()
-        .hash(args.hash_type.into())
+        .hash(args.hash_function.into())
         .alpha(args.alpha)
         .startpoints(args.startpoints)
         .chain_length(args.chain_length)

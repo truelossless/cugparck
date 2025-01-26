@@ -1,13 +1,10 @@
-mod ntlm;
+pub mod hash;
+pub mod utils;
 
 use core::fmt::Debug;
-use cubecl::prelude::*;
-use md4::{Digest as _, Md4};
-use md5::Md5;
+use cubecl::{prelude::*, server::Handle};
+use hash::{ntlm::md4, HashFunction};
 use serde::{Deserialize, Serialize};
-use sha1::Sha1;
-use sha2::{Sha224, Sha256, Sha384, Sha512};
-use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
 
 /// The default number of filters.
 /// "Precomputation for Rainbow Tables has Never Been so Fast" figure 3 shows that 20 is a reasonable number.
@@ -32,9 +29,6 @@ pub const DEFAULT_TABLE_NUMBER: u8 = 8;
 /// The maximum password size allowed.
 pub const MAX_PASSWORD_LENGTH_ALLOWED: usize = 10;
 
-/// The maximum digest size allowed.
-pub const MAX_DIGEST_LENGTH_ALLOWED: u16 = 64;
-
 /// The maximum charset length allowed.
 pub const MAX_CHARSET_LENGTH_ALLOWED: usize = 126;
 
@@ -42,10 +36,10 @@ pub const MAX_CHARSET_LENGTH_ALLOWED: usize = 126;
 pub type Password = Sequence<u8>;
 
 /// An ASCII password stored in a stack-allocated vector that lives on the GPU.
-#[derive(CubeType)]
+#[derive(CubeLaunch)]
 pub struct GpuPassword {
     pub data: Array<u8>,
-    pub len: u8,
+    len: u8,
 }
 
 #[cube]
@@ -60,6 +54,10 @@ impl GpuPassword {
     pub fn push(&mut self, c: u8) {
         self.data[self.len as u32] = c;
         self.len += 1;
+    }
+
+    pub fn len(&self) -> u32 {
+        self.len as u32
     }
 }
 
@@ -90,15 +88,12 @@ pub fn continue_chain(
     runtime_ctx: &RuntimeGpuCtx,
     #[comptime] comptime_ctx: ComptimeGpuCtx,
 ) -> u64 {
-    // let hash = ctx.hash_type.hash_function();
     let mut compressed_password2 = compressed_password;
+
     for i in columns_start..columns_end {
-        let plaintext = into_gpu_password(compressed_password2, runtime_ctx, comptime_ctx);
-        // TODO: reimplement hash functions...
-        let mut digest = Digest::new(comptime!(comptime_ctx.digest_size as u32));
-        for i in 0..plaintext.len as u32 {
-            digest[i] = plaintext.data[i]
-        }
+        let plaintext = counter_to_plaintext(compressed_password2, runtime_ctx, comptime_ctx);
+        // TODO: comptime match on the right hash function
+        let digest = md4(&plaintext);
         compressed_password2 = reduce(digest, i, runtime_ctx);
     }
 
@@ -128,128 +123,13 @@ pub fn ascii_to_charset(c: u8, charset: &Array<u8>) -> u8 {
 /// A digest stored in an array of bytes.
 pub type Digest = Array<u8>;
 
-/// All the supported hash functions.
-#[derive(CubeType, Copy, Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
-pub enum HashType {
-    Ntlm,
-    Md4,
-    Md5,
-    Sha1,
-    Sha2_224,
-    Sha2_256,
-    Sha2_384,
-    Sha2_512,
-    Sha3_224,
-    Sha3_256,
-    Sha3_384,
-    Sha3_512,
-}
-
-impl HashType {
-    //     /// Gets the right hash function.
-    //     pub fn hash_function(&self) -> fn(Password) -> Digest {
-    //         // SAFETY: The digests are guaranteed to be smaller or of the same size than the maximum digest size allowed.
-    //         unsafe {
-    //             match self {
-    //                 HashType::Ntlm => {
-    //                     |password| ntlm(&password).as_slice().try_into().unwrap_unchecked()
-    //                 }
-    //                 HashType::Md4 => |password| {
-    //                     Md4::digest(password)
-    //                         .as_slice()
-    //                         .try_into()
-    //                         .unwrap_unchecked()
-    //                 },
-    //                 HashType::Md5 => |password| {
-    //                     Md5::digest(password)
-    //                         .as_slice()
-    //                         .try_into()
-    //                         .unwrap_unchecked()
-    //                 },
-    //                 HashType::Sha1 => |password| {
-    //                     Sha1::digest(password)
-    //                         .as_slice()
-    //                         .try_into()
-    //                         .unwrap_unchecked()
-    //                 },
-    //                 HashType::Sha2_224 => |password| {
-    //                     Sha224::digest(password)
-    //                         .as_slice()
-    //                         .try_into()
-    //                         .unwrap_unchecked()
-    //                 },
-    //                 HashType::Sha2_256 => |password| {
-    //                     Sha256::digest(password)
-    //                         .as_slice()
-    //                         .try_into()
-    //                         .unwrap_unchecked()
-    //                 },
-    //                 HashType::Sha2_384 => |password| {
-    //                     Sha384::digest(password)
-    //                         .as_slice()
-    //                         .try_into()
-    //                         .unwrap_unchecked()
-    //                 },
-    //                 HashType::Sha2_512 => |password| {
-    //                     Sha512::digest(password)
-    //                         .as_slice()
-    //                         .try_into()
-    //                         .unwrap_unchecked()
-    //                 },
-    //                 HashType::Sha3_224 => |password| {
-    //                     Sha3_224::digest(password)
-    //                         .as_slice()
-    //                         .try_into()
-    //                         .unwrap_unchecked()
-    //                 },
-    //                 HashType::Sha3_256 => |password| {
-    //                     Sha3_256::digest(password)
-    //                         .as_slice()
-    //                         .try_into()
-    //                         .unwrap_unchecked()
-    //                 },
-    //                 HashType::Sha3_384 => |password| {
-    //                     Sha3_384::digest(password)
-    //                         .as_slice()
-    //                         .try_into()
-    //                         .unwrap_unchecked()
-    //                 },
-    //                 HashType::Sha3_512 => |password| {
-    //                     Sha3_512::digest(password)
-    //                         .as_slice()
-    //                         .try_into()
-    //                         .unwrap_unchecked()
-    //                 },
-    //             }
-    //         }
-    //     }
-
-    /// Gets the digest size in bytes.
-    pub fn digest_size(&self) -> usize {
-        match self {
-            HashType::Ntlm => Md4::output_size(),
-            HashType::Md4 => Md4::output_size(),
-            HashType::Md5 => Md5::output_size(),
-            HashType::Sha1 => Sha1::output_size(),
-            HashType::Sha2_224 => Sha224::output_size(),
-            HashType::Sha2_256 => Sha256::output_size(),
-            HashType::Sha2_384 => Sha384::output_size(),
-            HashType::Sha2_512 => Sha512::output_size(),
-            HashType::Sha3_224 => Sha3_224::output_size(),
-            HashType::Sha3_256 => Sha3_256::output_size(),
-            HashType::Sha3_384 => Sha3_384::output_size(),
-            HashType::Sha3_512 => Sha3_512::output_size(),
-        }
-    }
-}
-
 /// Context used to store all parameters used to generate a rainbow table.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct RainbowTableCtx {
     /// The number of starting chains to generate.
     pub m0: u64,
-    /// The type of the hash function used.
-    pub hash_type: HashType,
+    /// The hash function used.
+    pub hash_function: HashFunction,
     /// The charset used.
     pub charset: Vec<u8>,
     /// The length of a chain.
@@ -263,6 +143,31 @@ pub struct RainbowTableCtx {
     pub search_spaces: Vec<u64>,
     /// The table number.
     pub tn: u8,
+}
+
+impl RainbowTableCtx {
+    pub fn to_comptime_runtime<'a, Backend: Runtime>(
+        &self,
+        charset_arg: ArrayArg<'a, Backend>,
+        search_spaces_arg: ArrayArg<'a, Backend>,
+    ) -> (ComptimeGpuCtx, RuntimeGpuCtxLaunch<'a, Backend>) {
+        let comptime_ctx = ComptimeGpuCtx {
+            digest_size: self.hash_function.digest_size(),
+            max_password_length: self.max_password_length,
+            hash_function: self.hash_function,
+        };
+
+        let runtime_ctx = RuntimeGpuCtxLaunch::new(
+            ScalarArg::new(self.m0),
+            charset_arg,
+            ScalarArg::new(self.t),
+            ScalarArg::new(self.n),
+            search_spaces_arg,
+            ScalarArg::new(self.tn),
+        );
+
+        (comptime_ctx, runtime_ctx)
+    }
 }
 
 #[derive(CubeLaunch)]
@@ -279,7 +184,7 @@ pub struct RuntimeGpuCtx {
 pub struct ComptimeGpuCtx {
     pub max_password_length: u8,
     pub digest_size: u16,
-    pub hash_type: HashType,
+    pub hash_function: HashFunction,
 }
 
 /// A chain of the rainbow table, made of a startpoint and an endpoint.
@@ -317,147 +222,203 @@ impl RainbowChain {
 pub fn reduce(digest: Digest, iteration: u64, runtime_ctx: &RuntimeGpuCtx) -> u64 {
     // we can use the 8 first bytes of the digest as the seed, since it is pseudo-random.
     let mut seed = 0;
-
     for i in 0..8 {
-        // SAFETY: The digest is at least 8 bytes long.
         seed |= (digest[i as u32] as u64) << (i * 8);
     }
 
+    // (seed + iteration * runtime_ctx.tn as u64) % runtime_ctx.n
     (seed + iteration * runtime_ctx.tn as u64) % runtime_ctx.n
 }
 
 /// Creates a plaintext from a counter.
 #[cube]
 pub fn counter_to_plaintext(
-    mut counter: u64,
+    counter: u64,
     runtime_ctx: &RuntimeGpuCtx,
     #[comptime] comptime_ctx: ComptimeGpuCtx,
 ) -> GpuPassword {
-    let mut search_space_index: u32 = runtime_ctx.search_spaces.len() - 1u32;
+    let mut search_space_index: u32 = runtime_ctx.search_spaces.len() - 1;
+    let mut counter2 = counter;
 
     loop {
         let space = runtime_ctx.search_spaces[search_space_index];
-        if counter >= space || search_space_index == 0 {
+        if counter2 >= space {
             break;
         }
-
         search_space_index -= 1;
     }
-
-    let len = runtime_ctx.search_spaces.len() - search_space_index - 1;
-    counter -= runtime_ctx.search_spaces[len];
-
     let mut plaintext = GpuPassword::new(comptime_ctx);
-    for _ in 0..len {
+
+    counter2 -= runtime_ctx.search_spaces[search_space_index];
+
+    for _ in 0..search_space_index {
         plaintext.push(charset_to_ascii(
-            counter % runtime_ctx.charset.len() as u64,
+            counter2 % runtime_ctx.charset.len() as u64,
             &runtime_ctx.charset,
         ));
-        counter /= runtime_ctx.charset.len() as u64;
+        counter2 /= runtime_ctx.charset.len() as u64;
     }
 
-    GpuPassword::new(comptime_ctx)
+    plaintext
 }
 
 /// Creates a counter from a plaintext.
 #[cube]
-#[expect(clippy::explicit_counter_loop)]
 fn plaintext_to_counter(plaintext: GpuPassword, ctx: &RuntimeGpuCtx) -> u64 {
-    let mut counter = ctx.search_spaces[plaintext.len as u32];
-    let mut pow = 0;
+    let mut counter = ctx.search_spaces[plaintext.len()];
+    let mut charset_base = 1;
 
-    for i in 0..plaintext.len as u32 {
-        let mut charset_base = ctx.charset.len() as u64;
-        for _ in 0..pow {
-            charset_base *= charset_base;
-        }
-
+    for i in 0..plaintext.len() {
         counter += ascii_to_charset(plaintext.data[i], &ctx.charset) as u64 * charset_base;
-        pow += 1;
+        charset_base *= ctx.charset.len() as u64;
     }
 
     counter
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use tinyvec::array_vec;
-//
-//     use crate::{
-//         ascii_to_charset, counter_to_plaintext, plaintext_to_counter, HashType, Password,
-//         RainbowTableCtx, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET, DEFAULT_MAX_PASSWORD_LENGTH,
-//         DEFAULT_TABLE_NUMBER,
-//     };
-//
-//     fn build_ctx() -> RainbowTableCtx {
-//         RainbowTableCtx {
-//             hash_type: HashType::Ntlm,
-//             search_spaces: array_vec![0, 1, 4, 13, 40, 121, 364],
-//             charset: b"abc".as_slice().try_into().unwrap(),
-//             max_password_length: DEFAULT_MAX_PASSWORD_LENGTH as u64,
-//             t: DEFAULT_CHAIN_LENGTH,
-//             tn: DEFAULT_TABLE_NUMBER as u64,
-//             m0: 0,
-//             n: 0,
-//         }
-//     }
-//
-//     #[test]
-//     fn test_ascii_to_charset() {
-//         assert_eq!(9, ascii_to_charset(b'9', DEFAULT_CHARSET));
-//         assert_eq!(63, ascii_to_charset(b'_', DEFAULT_CHARSET));
-//     }
-//
-//     #[test]
-//     fn test_counter_to_plaintext() {
-//         let ctx = build_ctx();
-//
-//         let plaintexts = (0..14).map(|i| counter_to_plaintext(i, &ctx));
-//
-//         let expected = [
-//             Password::new(b""),
-//             Password::new(b"a"),
-//             Password::new(b"b"),
-//             Password::new(b"c"),
-//             Password::new(b"aa"),
-//             Password::new(b"ba"),
-//             Password::new(b"ca"),
-//             Password::new(b"ab"),
-//             Password::new(b"bb"),
-//             Password::new(b"cb"),
-//             Password::new(b"ac"),
-//             Password::new(b"bc"),
-//             Password::new(b"cc"),
-//             Password::new(b"aaa"),
-//         ];
-//
-//         assert!(expected.into_iter().eq(plaintexts));
-//     }
-//
-//     #[test]
-//     fn test_plaintext_to_counter() {
-//         let ctx = build_ctx();
-//
-//         let counters = [
-//             Password::new(b""),
-//             Password::new(b"a"),
-//             Password::new(b"b"),
-//             Password::new(b"c"),
-//             Password::new(b"aa"),
-//             Password::new(b"ba"),
-//             Password::new(b"ca"),
-//             Password::new(b"ab"),
-//             Password::new(b"bb"),
-//             Password::new(b"cb"),
-//             Password::new(b"ac"),
-//             Password::new(b"bc"),
-//             Password::new(b"cc"),
-//             Password::new(b"aaa"),
-//         ]
-//         .map(|plaintext| plaintext_to_counter(plaintext, &ctx));
-//
-//         let expected = 0..14;
-//
-//         assert!(expected.into_iter().eq(counters));
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use cubecl::prelude::*;
+    use cubecl_cuda::CudaRuntime;
+
+    use crate::{
+        ascii_to_charset, counter_to_plaintext, plaintext_to_counter, ComptimeGpuCtx, GpuPassword,
+        HashFunction, Password, RainbowTableCtx, RuntimeGpuCtx, DEFAULT_CHAIN_LENGTH,
+        DEFAULT_CHARSET, DEFAULT_MAX_PASSWORD_LENGTH, DEFAULT_TABLE_NUMBER,
+    };
+
+    fn build_ctx() -> RainbowTableCtx {
+        RainbowTableCtx {
+            hash_function: HashFunction::Ntlm,
+            search_spaces: vec![0, 1, 4, 13, 40, 121, 364],
+            charset: b"abc".as_slice().into(),
+            max_password_length: DEFAULT_MAX_PASSWORD_LENGTH,
+            t: DEFAULT_CHAIN_LENGTH,
+            tn: DEFAULT_TABLE_NUMBER,
+            m0: 0,
+            n: 0,
+        }
+    }
+
+    #[cube(launch)]
+    fn test_ascii_to_charset_kernel(c: &Array<u8>, charset: &Array<u8>, output: &mut Array<u8>) {
+        output[ABSOLUTE_POS] = ascii_to_charset(c[ABSOLUTE_POS], charset);
+    }
+
+    #[test]
+    fn test_ascii_to_charset() {
+        let client = CudaRuntime::client(&Default::default());
+        let c_handle = client.create(b"9_");
+        let charset_handle = client.create(DEFAULT_CHARSET);
+        let output_handle = client.empty(2);
+
+        test_ascii_to_charset_kernel::launch::<CudaRuntime>(
+            &client,
+            CubeCount::new_1d(2),
+            CubeDim::new_single(),
+            unsafe { ArrayArg::from_raw_parts::<u8>(&c_handle, 2, 1) },
+            unsafe { ArrayArg::from_raw_parts::<u8>(&charset_handle, DEFAULT_CHARSET.len(), 1) },
+            unsafe { ArrayArg::from_raw_parts::<u8>(&output_handle, 2, 1) },
+        );
+
+        let actual_output = client.read_one(output_handle.binding());
+        assert_eq!(&[9, 63], actual_output.as_slice());
+    }
+
+    #[cube(launch)]
+    fn test_counter_to_plaintext_kernel(
+        counter: Array<u64>,
+        runtime_ctx: RuntimeGpuCtx,
+        output: &mut Array<u8>,
+        #[comptime] comptime_ctx: ComptimeGpuCtx,
+    ) {
+        let plaintext = counter_to_plaintext(counter[ABSOLUTE_POS], &runtime_ctx, comptime_ctx);
+        for i in 0..plaintext.len() {
+            output[i] = plaintext.data[i];
+        }
+
+        for i in plaintext.len()..output.len() {
+            output[i] = 0;
+        }
+    }
+
+    #[test]
+    fn test_counter_to_plaintext() {
+        let ctx = build_ctx();
+        let client = CudaRuntime::client(&Default::default());
+        let charset_handle = client.create(&ctx.charset);
+        let search_spaces_handle = client.create(u64::as_bytes(&ctx.search_spaces));
+
+        let launch_for_i = |i| -> Vec<u8> {
+            let counter_handle = client.create(u64::as_bytes(&[i as u64]));
+            let counter_arg = unsafe { ArrayArg::from_raw_parts::<u64>(&counter_handle, 1, 1) };
+
+            let (comptime_ctx, runtime_ctx) = ctx.to_comptime_runtime(
+                unsafe { ArrayArg::from_raw_parts::<u8>(&charset_handle, ctx.charset.len(), 1) },
+                unsafe {
+                    ArrayArg::from_raw_parts::<u64>(
+                        &search_spaces_handle,
+                        ctx.search_spaces.len(),
+                        1,
+                    )
+                },
+            );
+            let output_handle = client.empty(ctx.max_password_length as usize);
+
+            test_counter_to_plaintext_kernel::launch::<CudaRuntime>(
+                &client,
+                CubeCount::new_1d(1),
+                CubeDim::new_single(),
+                counter_arg,
+                runtime_ctx,
+                unsafe { ArrayArg::from_raw_parts::<u8>(&output_handle, 10, 1) },
+                comptime_ctx,
+            );
+
+            client
+                .read_one(output_handle.binding())
+                .iter()
+                .take_while(|c| **c != 0)
+                .copied()
+                .collect()
+        };
+
+        let expected_outputs: &[&[u8]] = &[
+            b"", b"a", b"b", b"c", b"aa", b"ba", b"ca", b"ab", b"bb", b"cb", b"ac", b"bc", b"cc",
+            b"aaa",
+        ];
+
+        for (i, expected_output) in expected_outputs.iter().enumerate() {
+            let actual_output = launch_for_i(i);
+            assert_eq!(expected_output, &actual_output);
+            dbg!("ok");
+        }
+    }
+
+    // #[test]
+    // fn test_plaintext_to_counter() {
+    //     let ctx = build_ctx();
+
+    //     let counters = [
+    //         Password::new(b""),
+    //         Password::new(b"a"),
+    //         Password::new(b"b"),
+    //         Password::new(b"c"),
+    //         Password::new(b"aa"),
+    //         Password::new(b"ba"),
+    //         Password::new(b"ca"),
+    //         Password::new(b"ab"),
+    //         Password::new(b"bb"),
+    //         Password::new(b"cb"),
+    //         Password::new(b"ac"),
+    //         Password::new(b"bc"),
+    //         Password::new(b"cc"),
+    //         Password::new(b"aaa"),
+    //     ]
+    //     .map(|plaintext| plaintext_to_counter(plaintext, &ctx));
+
+    //     let expected = 0..14;
+
+    //     assert!(expected.into_iter().eq(counters));
+    // }
+}

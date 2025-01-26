@@ -16,7 +16,7 @@ pub use {
 use std::ops::Range;
 
 use cugparck_core::{
-    HashType, RainbowTableCtx, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET,
+    hash::HashFunction, RainbowTableCtx, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET,
     DEFAULT_FILTER_COUNT, DEFAULT_MAX_PASSWORD_LENGTH, DEFAULT_TABLE_NUMBER,
 };
 
@@ -25,7 +25,7 @@ use error::CugparckResult;
 /// A builder for a rainbow table context.
 #[derive(Clone)]
 pub struct RainbowTableCtxBuilder {
-    hash_type: HashType,
+    hash_function: HashFunction,
     charset: Vec<u8>,
     t: u64,
     tn: u8,
@@ -37,7 +37,7 @@ pub struct RainbowTableCtxBuilder {
 impl Default for RainbowTableCtxBuilder {
     fn default() -> Self {
         Self {
-            hash_type: HashType::Ntlm,
+            hash_function: HashFunction::Ntlm,
             charset: DEFAULT_CHARSET.to_owned(),
             max_password_length: DEFAULT_MAX_PASSWORD_LENGTH,
             t: DEFAULT_CHAIN_LENGTH,
@@ -55,8 +55,8 @@ impl RainbowTableCtxBuilder {
     }
 
     /// Sets the hash function of the context.
-    pub fn hash(mut self, hash_type: HashType) -> Self {
-        self.hash_type = hash_type;
+    pub fn hash(mut self, hash_function: HashFunction) -> Self {
+        self.hash_function = hash_function;
 
         self
     }
@@ -149,7 +149,7 @@ impl RainbowTableCtxBuilder {
         Ok(RainbowTableCtx {
             search_spaces,
             m0,
-            hash_type: self.hash_type,
+            hash_function: self.hash_function,
             n,
             charset: self.charset,
             max_password_length: self.max_password_length,

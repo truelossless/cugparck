@@ -11,12 +11,7 @@ use crate::{error::CugparckResult, CugparckError};
 
 pub use {compressed_delta_encoding::CompressedTable, simple::SimpleTable};
 
-use cubecl::prelude::Array;
-use cugparck_core::{
-    into_gpu_password, reduce, CompressedPassword, Digest, Password, RainbowChain, RainbowTableCtx,
-    MAX_DIGEST_LENGTH_ALLOWED,
-};
-use rayon::prelude::*;
+use cugparck_core::{CompressedPassword, RainbowChain, RainbowTableCtx};
 use serde::{Deserialize, Serialize};
 
 /// Trait that data structures implement to be used as rainbow tables.
@@ -47,7 +42,7 @@ pub trait RainbowTable: Sized + Sync + Serialize + for<'a> Deserialize<'a> {
     fn search_column(&self, column: u64, digest: &Digest) -> Option<Password> {
         let ctx = self.ctx();
         // TODO: impl hash
-        // let hash = ctx.hash_type.hash_function();
+        // let hash = ctx.hash_function.hash_function();
         let mut column_digest = digest;
         let mut column_counter;
 

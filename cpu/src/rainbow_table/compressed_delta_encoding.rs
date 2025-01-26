@@ -630,7 +630,7 @@ impl Iterator for CompressedTableEndpointIterator<'_> {
 //             .charset(b"abc")
 //             .build()
 //             .unwrap();
-//         let hash = ctx.hash_type.hash_function();
+//         let hash = ctx.hash_function.hash_function();
 //
 //         let table = SimpleTable::new_blocking::<Cpu>(ctx)
 //             .unwrap()
@@ -649,7 +649,7 @@ impl Iterator for CompressedTableEndpointIterator<'_> {
 //             .charset(b"abcdef")
 //             .build()
 //             .unwrap();
-//         let hash = ctx.hash_type.hash_function();
+//         let hash = ctx.hash_function.hash_function();
 //
 //         let table: CompressedTable = SimpleTable::new_blocking::<Cpu>(ctx)
 //             .unwrap()
