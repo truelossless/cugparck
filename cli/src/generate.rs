@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use cugparck_cpu::{
+use cugparck_core::{
     CompressedTable, CudaRuntime, Event, RainbowTable, RainbowTableCtxBuilder, SimpleTable,
     WgpuRuntime,
 };

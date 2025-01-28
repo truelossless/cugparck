@@ -6,4 +6,4 @@ codegen-units = 1
 [workspace]
 resolver = "2"
 
-members = ["cli", "core", "cpu", "cubecl"]
+members = ["cli", "core"]

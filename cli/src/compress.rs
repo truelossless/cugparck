@@ -1,7 +1,7 @@
 use crate::{create_dir_to_store_tables, get_table_paths_from_dir, Compress};
 
 use anyhow::{ensure, Result};
-use cugparck_cpu::{CompressedTable, RainbowTable, SimpleTable};
+use cugparck_core::{CompressedTable, RainbowTable, SimpleTable};
 
 pub fn compress(args: Compress) -> Result<()> {
     create_dir_to_store_tables(&args.out_dir)?;

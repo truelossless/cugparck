@@ -5,31 +5,28 @@ mod generate;
 // mod stealdows;
 
 use std::{
-    fs::{self, File},
-    io::BufReader,
+    fs::{self},
     path::{Path, PathBuf},
     string::String,
 };
 
-use clap::{clap_derive::ArgEnum, value_parser, Args, Parser, Subcommand};
-
 use anyhow::{ensure, Context, Ok, Result};
 
+use clap::{value_parser, Args, Parser, Subcommand, ValueEnum};
 use crossterm::style::{style, Color, Stylize};
-use cugparck_core::{
-    hash::HashFunction, Digest, Password, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET,
-    DEFAULT_MAX_PASSWORD_LENGTH,
-};
-use cugparck_cpu::{CompressedTable, RainbowTable, SimpleTable, TableCluster};
 
 use attack::attack;
 use compress::compress;
+use cugparck_core::{
+    ClusterTable, CompressedTable, Digest, HashFunction, Password, RainbowTable, SimpleTable,
+    DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET, DEFAULT_MAX_PASSWORD_LENGTH,
+};
 use decompress::decompress;
 use generate::generate;
 // use stealdows::stealdows;
 
 /// All the hash types supported.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 enum HashFunctionArg {
     Ntlm,
     Md4,
@@ -66,7 +63,7 @@ impl From<HashFunctionArg> for HashFunction {
 
 /// All the backends available on this target, with the current feature flags.
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum, Default)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Default)]
 pub enum AvailableBackend {
     #[default]
     Cuda,
@@ -179,7 +176,7 @@ pub struct Generate {
 
     /// Force a backend for the table generation.
     /// If not provided, the fastest will be used.
-    #[clap(short, long, arg_enum, default_value_t)]
+    #[clap(short, long, value_enum, default_value_t)]
     backend: AvailableBackend,
 
     /// Set the maximality factor (alpha).
@@ -289,7 +286,7 @@ fn get_table_paths_from_dir(dir: &Path) -> Result<(Vec<PathBuf>, bool)> {
     let mut is_compressed_tables = false;
     let mut table_paths = Vec::new();
 
-    for file in fs::read_dir(&dir).context("Unable to open the specified directory")? {
+    for file in fs::read_dir(dir).context("Unable to open the specified directory")? {
         let file = file?;
 
         if file.file_type()?.is_dir() {
@@ -349,7 +346,7 @@ fn get_table_paths_from_dir(dir: &Path) -> Result<(Vec<PathBuf>, bool)> {
     Ok((table_paths, is_compressed_tables))
 }
 
-/// Searches for a digest from the tables at a given path, table after table.
+/// Searches a digest in the tables at a given path.
 /// If `low memory` is true, the tables aren't loaded at the same time to be searched in parallel.
 /// This slows the search but saves memory.
 fn search_tables(
@@ -358,7 +355,7 @@ fn search_tables(
     is_compressed: bool,
     low_memory: bool,
 ) -> Result<Option<Password>> {
-    /*     match (is_compressed, low_memory) {
+    match (is_compressed, low_memory) {
         (true, true) => {
             for table_path in table_paths {
                 if let Some(digest) = CompressedTable::load(table_path)?.search(&digest) {
@@ -375,7 +372,7 @@ fn search_tables(
                 .map(|mmap| CompressedTable::load(mmap))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            Ok(TableCluster::new(&tables).search(digest))
+            Ok(ClusterTable::new(&tables).search(&digest))
         }
 
         (false, true) => {
@@ -394,9 +391,7 @@ fn search_tables(
                 .map(|mmap| SimpleTable::load(mmap))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            Ok(TableCluster::new(&tables).search(digest))
+            Ok(ClusterTable::new(&tables).search(&digest))
         }
-    } */
-
-    Ok(None)
+    }
 }

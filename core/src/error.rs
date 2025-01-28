@@ -16,6 +16,9 @@ pub enum CugparckError {
     #[error("Not enough memory available to start the computation. Try increasing the chain size")]
     IndexMapOutOfMemory,
 
+    #[error("The password length is greater than the maximum allowed length of {0}")]
+    MaxPasswordLengthExcedeed(u8),
+
     #[error("No suitable GPU found for the calcuation")]
     NoGpu,
 

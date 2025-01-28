@@ -17,7 +17,7 @@ use comfy_table::{presets::UTF8_BORDERS_ONLY, Cell, Color, Table};
 use crossterm::style::Stylize;
 use cugparck_core::{Digest, Password};
 use des::Des;
-use md5::{Digest as _, Md5};
+use digest::{Digest as _, Md5};
 use nt_hive::{Hive, KeyNode, NtHiveError, NtHiveNameString};
 use rc4::{KeyInit, Rc4, StreamCipher};
 use sysinfo::{DiskExt, RefreshKind, System, SystemExt};

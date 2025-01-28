@@ -2,7 +2,7 @@ use std::{ops::Range, thread::JoinHandle};
 
 use crossbeam_channel::Receiver;
 
-use crate::{error::CugparckResult, SimpleTable};
+use crate::{error::CugparckResult, rainbow_table::SimpleTable};
 
 /// An event to track the progress of the generation of a rainbow table.
 pub enum Event {

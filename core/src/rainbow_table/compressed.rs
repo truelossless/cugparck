@@ -1,12 +1,13 @@
 use std::iter::{self, Enumerate};
 
 use bitvec::prelude::*;
-use cugparck_core::{CompressedPassword, RainbowChain, RainbowTableCtx};
 use itertools::{Itertools, PeekingNext};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::RainbowTable;
+use crate::{ctx::RainbowTableCtx, CompressedPassword};
+
+use super::{RainbowChain, RainbowTable};
 
 /// An arbitrary block size.
 const BLOCK_SIZE: usize = 256;
@@ -293,7 +294,10 @@ impl Iterator for CompressedTableIterator<'_> {
         let (i, endpoint) = self.endpoint_iter.next()?;
         let startpoint = self.table.startpoint(i);
 
-        Some(RainbowChain::from_compressed(startpoint, endpoint))
+        Some(RainbowChain {
+            startpoint,
+            endpoint,
+        })
     }
 }
 
@@ -377,298 +381,307 @@ impl Iterator for CompressedTableEndpointIterator<'_> {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::{
-//         backend::Cpu,
-//         rainbow_table::{
-//             compressed_delta_encoding::{CompressedTableEndpointIterator, Index},
-//             simple::SimpleTable,
-//             RainbowTable,
-//         },
-//         RainbowTableCtxBuilder,
-//     };
-//
-//     use bitvec::prelude::*;
-//     use cugparck_commons::{CompressedPassword, Password, RainbowChain};
-//     use itertools::Itertools;
-//
-//     use super::{CompressedTable, BLOCK_SIZE};
-//
-//     /// Builds a table for testing purposes with chains like (startpoint, endpoint = startpoint * 7).
-//     /// We have n = 5461, m0 = m = 513.
-//     fn build_table() -> (CompressedTable, Vec<RainbowChain>) {
-//         let ctx = RainbowTableCtxBuilder::new()
-//             .startpoints(Some(BLOCK_SIZE * 2 + 1))
-//             .charset(b"abcd")
-//             .build()
-//             .unwrap();
-//         let chains = (0..BLOCK_SIZE * 2 + 1)
-//             .map(|i| RainbowChain::from_compressed(i.into(), (i * 7).into()))
-//             .collect_vec();
-//
-//         (
-//             SimpleTable::from_vec(chains.clone(), ctx).into_rainbow_table(),
-//             chains,
-//         )
-//     }
-//
-//     // Some of the parameters used in the following test cases are from "Optimal Storage for Rainbow Tables" section 5.3.
-//
-//     #[test]
-//     fn test_optimal_rice_parameter() {
-//         assert_eq!(
-//             3,
-//             CompressedTable::optimal_rice_parameter(2f64.powi(20), 2f64.powi(16))
-//         );
-//
-//         // this one was verified using Wolfram Alpha.
-//         assert_eq!(
-//             11,
-//             CompressedTable::optimal_rice_parameter(2f64.powi(20), 300.)
-//         );
-//     }
-//
-//     #[test]
-//     fn test_optimal_rice_parameter_rate() {
-//         let n = 2f64.powi(20);
-//         let m = 2f64.powi(16);
-//         let k = 3;
-//
-//         assert_eq!(
-//             19,
-//             (CompressedTable::optimal_rice_parameter_rate(n, m, k) * m)
-//                 .log2()
-//                 .ceil() as usize
-//         )
-//     }
-//
-//     #[test]
-//     fn test_rice_encode() {
-//         let mut output = BitVec::new();
-//
-//         // This should be encoded as 11101.
-//         CompressedTable::rice_encode(7, 1, &mut output);
-//
-//         // This should be encoded as 1001.
-//         CompressedTable::rice_encode(6, 2, &mut output);
-//
-//         // This should be encoded as 101000.
-//         CompressedTable::rice_encode(17, 4, &mut output);
-//
-//         // Therefore the result should be 111011001101000,
-//         // since the storage type is BitVec<usize, Lsb0> and we're guaranteed that usize == u64.
-//         assert_eq!(bits![1, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0], &output)
-//     }
-//
-//     #[test]
-//     fn test_rice_decode() {
-//         assert_eq!(7, CompressedTable::rice_decode(1, bits![1, 1, 1, 0, 1]).0);
-//
-//         assert_eq!(6, CompressedTable::rice_decode(2, bits![1, 0, 0, 1]).0);
-//
-//         assert_eq!(
-//             17,
-//             CompressedTable::rice_decode(4, bits![1, 0, 1, 0, 0, 0]).0
-//         );
-//     }
-//
-//     #[test]
-//     fn test_index() {
-//         let n = 2f64.powi(20);
-//         let m = 2f64.powi(16);
-//         let k = 3;
-//
-//         let mut index = Index::new(n, m, k);
-//
-//         // each entry in the index should be 35 bits long
-//         index.add_entry(0, 0);
-//         index.add_entry(1000, 50);
-//         index.add_entry(2000, 100);
-//
-//         assert_eq!(35 * 3, index.entries.len());
-//
-//         // we should be able to get all entries back
-//         assert_eq!((0, 0), index.get_entry(0).unwrap());
-//         assert_eq!((1000, 50), index.get_entry(1).unwrap());
-//         assert_eq!((2000, 100), index.get_entry(2).unwrap());
-//     }
-//
-//     #[test]
-//     fn test_startpoints() {
-//         let ctx = RainbowTableCtxBuilder::new()
-//             .charset(b"abc")
-//             .startpoints(Some(5))
-//             .build()
-//             .unwrap();
-//
-//         let chains = vec![
-//             RainbowChain::new(Password::new(b"c"), Password::new(b"aaa"), &ctx),
-//             RainbowChain::new(Password::new(b""), Password::new(b"caa"), &ctx),
-//             RainbowChain::new(Password::new(b"aa"), Password::new(b"aab"), &ctx),
-//             RainbowChain::new(Password::new(b"b"), Password::new(b"ccb"), &ctx),
-//             RainbowChain::new(Password::new(b"a"), Password::new(b"ccc"), &ctx),
-//         ];
-//
-//         let table: CompressedTable = SimpleTable::from_vec(chains, ctx).into_rainbow_table();
-//
-//         // log2(m) = 3 bits for the address
-//         // "c" = 110 (Lsb0)
-//         // "" = 000 (Lsb0)
-//         // "aa" = 001 (Lsb0)
-//         // "b" = 010 (Lsb0)
-//         // "a" = 100 (Lsb0)
-//
-//         assert_eq!(
-//             bits![1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0,],
-//             table.startpoints
-//         )
-//     }
-//
-//     #[test]
-//     fn test_endpoints() {
-//         let ctx = RainbowTableCtxBuilder::new()
-//             .charset(b"abc")
-//             .build()
-//             .unwrap();
-//
-//         let chains = vec![
-//             RainbowChain::new(Password::new(b"c"), Password::new(b""), &ctx),
-//             RainbowChain::new(Password::new(b""), Password::new(b"a"), &ctx),
-//             RainbowChain::new(Password::new(b"aa"), Password::new(b"aa"), &ctx),
-//             RainbowChain::new(Password::new(b"b"), Password::new(b"cc"), &ctx),
-//             RainbowChain::new(Password::new(b"a"), Password::new(b"baa"), &ctx),
-//         ];
-//
-//         let table: CompressedTable = SimpleTable::from_vec(chains, ctx).into_rainbow_table();
-//
-//         // delta (minus one) between the endpoints:
-//         // 0, 2, 7, 1
-//         // since the first index entry start at zero we should get
-//         // 0, 0, 2, 7, 1 rice-encoded with k = 7
-//         // k = 7 may not optimal for this table but the formula doesn't work well with small numbers.
-//         // 0 => 00000000
-//         // 2 => 00100000 (Lsb0)
-//         // 7 => 01110000 (Lsb0)
-//         // 1 => 01000000 (Lsb0)
-//         // therefore the endpoints should be: 0000000000000000001000000111000001000000
-//         assert_eq!(
-//             bits![
-//                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1,
-//                 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0
-//             ],
-//             table.endpoints
-//         );
-//     }
-//
-//     #[test]
-//     fn test_block() {
-//         let (table, _) = build_table();
-//
-//         // l = ceil(m / BLOCK_SIZE) = ceil(513 / 256) = 3
-//         // and we have a last entry for the integer division rounding, so we should get l + 1 = 4.
-//         assert_eq!(
-//             4,
-//             table.index.entries.len()
-//                 / (table.index.bit_address_size + table.index.chain_number_size)
-//         );
-//
-//         // one block spans 1820 values (n / l = 5461 / 3).
-//         // so when the endpoints reach 1820 we should switch to the second block.
-//         let (bit_address, chain_number) = table.index.get_entry(1).unwrap();
-//
-//         // the first endpoint to reach 1820 is 1820, so its starpoint should be 1820 / 7 = 260.
-//         assert_eq!(260, chain_number);
-//
-//         let (diff, rest) = CompressedTable::rice_decode(table.k, &table.endpoints[bit_address..]);
-//
-//         // the first delta (not minus one) should be 0, as 1820 - 1820 = 2
-//         assert_eq!(0, diff);
-//
-//         let (diff, _) = CompressedTable::rice_decode(table.k, rest);
-//
-//         // all the following delta (minus one) should be 6 because the difference between two endpoints is always 7
-//         assert_eq!(6, diff);
-//     }
-//
-//     #[test]
-//     fn test_iterator() {
-//         let (table, chains) = build_table();
-//
-//         let chains_found = table.into_iter().collect_vec();
-//         assert_eq!(chains, chains_found);
-//
-//         let endpoints_from_second_block = CompressedTableEndpointIterator::from_block(&table, 1)
-//             .unwrap()
-//             .collect_vec();
-//         assert_eq!(
-//             chains[260..]
-//                 .iter()
-//                 .map(|chain| chain.endpoint)
-//                 .collect_vec(),
-//             endpoints_from_second_block
-//         );
-//     }
-//
-//     #[test]
-//     fn test_search_endpoints() {
-//         let (table, _) = build_table();
-//
-//         // take an arbitrary endpoint and try to find the chain number again
-//         const CHAIN_NUMBER: usize = 420;
-//         let chain = table.into_iter().nth(CHAIN_NUMBER).unwrap();
-//
-//         let search = table.search_endpoints(chain.endpoint);
-//         assert_eq!(Some(chain.startpoint), search);
-//     }
-//
-//     #[test]
-//     fn test_search() {
-//         let ctx = RainbowTableCtxBuilder::new()
-//             .chain_length(100)
-//             .max_password_length(4)
-//             .charset(b"abc")
-//             .build()
-//             .unwrap();
-//         let hash = ctx.hash_function.hash_function();
-//
-//         let table = SimpleTable::new_blocking::<Cpu>(ctx)
-//             .unwrap()
-//             .into_rainbow_table::<CompressedTable>();
-//         let search = Password::new(b"abca");
-//
-//         let found = table.search(hash(search));
-//         assert_eq!(search, found.unwrap());
-//     }
-//
-//     #[test]
-//     fn test_coverage() {
-//         let ctx = RainbowTableCtxBuilder::new()
-//             .chain_length(100)
-//             .max_password_length(4)
-//             .charset(b"abcdef")
-//             .build()
-//             .unwrap();
-//         let hash = ctx.hash_function.hash_function();
-//
-//         let table: CompressedTable = SimpleTable::new_blocking::<Cpu>(ctx)
-//             .unwrap()
-//             .into_rainbow_table();
-//
-//         let mut found = 0;
-//         for i in 0..ctx.n {
-//             let password = CompressedPassword::from(i).into_password(&ctx);
-//             if let Some(plaintext) = table.search(hash(password)) {
-//                 assert_eq!(password, plaintext);
-//                 found += 1;
-//             }
-//         }
-//
-//         // the success rate should be around 85% - 87%
-//         let success_rate = found as f64 / ctx.n as f64 * 100.;
-//         assert!(
-//             (80. ..90.).contains(&success_rate),
-//             "success rate is only {success_rate}"
-//         );
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use bitvec::prelude::*;
+    use cubecl_cuda::CudaRuntime;
+    use itertools::Itertools;
+
+    use crate::{
+        cpu::counter_to_plaintext,
+        ctx::RainbowTableCtxBuilder,
+        rainbow_table::{
+            compressed::{CompressedTableEndpointIterator, Index},
+            RainbowChain, RainbowTable, SimpleTable,
+        },
+    };
+
+    use super::{CompressedTable, BLOCK_SIZE};
+
+    /// Builds a table for testing purposes with chains like (startpoint, endpoint = startpoint * 7).
+    /// We have n = 5461, m0 = m = 513.
+    fn build_table() -> (CompressedTable, Vec<RainbowChain>) {
+        let ctx = RainbowTableCtxBuilder::new()
+            .startpoints(Some(BLOCK_SIZE as u64 * 2 + 1))
+            .charset(b"abcd")
+            .build()
+            .unwrap();
+        let chains = (0..BLOCK_SIZE * 2 + 1)
+            .map(|i| RainbowChain {
+                startpoint: i as u64,
+                endpoint: (i * 7) as u64,
+            })
+            .collect_vec();
+
+        (
+            SimpleTable::from_vec(chains.clone(), ctx).into_rainbow_table(),
+            chains,
+        )
+    }
+
+    // Some of the parameters used in the following test cases are from "Optimal Storage for Rainbow Tables" section 5.3.
+
+    #[test]
+    fn test_optimal_rice_parameter() {
+        assert_eq!(
+            3,
+            CompressedTable::optimal_rice_parameter(2f64.powi(20), 2f64.powi(16))
+        );
+
+        // this one was verified using Wolfram Alpha.
+        assert_eq!(
+            11,
+            CompressedTable::optimal_rice_parameter(2f64.powi(20), 300.)
+        );
+    }
+
+    #[test]
+    fn test_optimal_rice_parameter_rate() {
+        let n = 2f64.powi(20);
+        let m = 2f64.powi(16);
+        let k = 3;
+
+        assert_eq!(
+            19,
+            (CompressedTable::optimal_rice_parameter_rate(n, m, k) * m)
+                .log2()
+                .ceil() as usize
+        )
+    }
+
+    #[test]
+    fn test_rice_encode() {
+        let mut output = BitVec::new();
+
+        // This should be encoded as 11101.
+        CompressedTable::rice_encode(7, 1, &mut output);
+
+        // This should be encoded as 1001.
+        CompressedTable::rice_encode(6, 2, &mut output);
+
+        // This should be encoded as 101000.
+        CompressedTable::rice_encode(17, 4, &mut output);
+
+        // Therefore the result should be 111011001101000,
+        // since the storage type is BitVec<usize, Lsb0> and we're guaranteed that usize == u64.
+        assert_eq!(bits![1, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0], &output)
+    }
+
+    #[test]
+    fn test_rice_decode() {
+        assert_eq!(7, CompressedTable::rice_decode(1, bits![1, 1, 1, 0, 1]).0);
+
+        assert_eq!(6, CompressedTable::rice_decode(2, bits![1, 0, 0, 1]).0);
+
+        assert_eq!(
+            17,
+            CompressedTable::rice_decode(4, bits![1, 0, 1, 0, 0, 0]).0
+        );
+    }
+
+    #[test]
+    fn test_index() {
+        let n = 2f64.powi(20);
+        let m = 2f64.powi(16);
+        let k = 3;
+
+        let mut index = Index::new(n, m, k);
+
+        // each entry in the index should be 35 bits long
+        index.add_entry(0, 0);
+        index.add_entry(1000, 50);
+        index.add_entry(2000, 100);
+
+        assert_eq!(35 * 3, index.entries.len());
+
+        // we should be able to get all entries back
+        assert_eq!((0, 0), index.get_entry(0).unwrap());
+        assert_eq!((1000, 50), index.get_entry(1).unwrap());
+        assert_eq!((2000, 100), index.get_entry(2).unwrap());
+    }
+
+    #[test]
+    fn test_startpoints() {
+        let ctx = RainbowTableCtxBuilder::new()
+            .charset(b"abc")
+            .startpoints(Some(5))
+            .build()
+            .unwrap();
+
+        let chains = vec![
+            RainbowChain::new(b"c".to_vec(), b"aaa".to_vec(), &ctx),
+            RainbowChain::new(b"".to_vec(), b"caa".to_vec(), &ctx),
+            RainbowChain::new(b"aa".to_vec(), b"aab".to_vec(), &ctx),
+            RainbowChain::new(b"b".to_vec(), b"ccb".to_vec(), &ctx),
+            RainbowChain::new(b"a".to_vec(), b"ccc".to_vec(), &ctx),
+        ];
+
+        let table: CompressedTable = SimpleTable::from_vec(chains, ctx).into_rainbow_table();
+
+        // log2(m) = 3 bits for the address
+        // "c" = 110 (Lsb0)
+        // "" = 000 (Lsb0)
+        // "aa" = 001 (Lsb0)
+        // "b" = 010 (Lsb0)
+        // "a" = 100 (Lsb0)
+
+        assert_eq!(
+            bits![1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0,],
+            table.startpoints
+        )
+    }
+
+    #[test]
+    fn test_endpoints() {
+        let ctx = RainbowTableCtxBuilder::new()
+            .charset(b"abc")
+            .build()
+            .unwrap();
+
+        let chains = vec![
+            RainbowChain::new(b"c".to_vec(), b"".to_vec(), &ctx),
+            RainbowChain::new(b"".to_vec(), b"a".to_vec(), &ctx),
+            RainbowChain::new(b"aa".to_vec(), b"aa".to_vec(), &ctx),
+            RainbowChain::new(b"b".to_vec(), b"cc".to_vec(), &ctx),
+            RainbowChain::new(b"a".to_vec(), b"baa".to_vec(), &ctx),
+        ];
+
+        let table: CompressedTable = SimpleTable::from_vec(chains, ctx).into_rainbow_table();
+
+        // delta (minus one) between the endpoints:
+        // 0, 2, 7, 1
+        // since the first index entry start at zero we should get
+        // 0, 0, 2, 7, 1 rice-encoded with k = 7
+        // k = 7 may not optimal for this table but the formula doesn't work well with small numbers.
+        // 0 => 00000000
+        // 2 => 00100000 (Lsb0)
+        // 7 => 01110000 (Lsb0)
+        // 1 => 01000000 (Lsb0)
+        // therefore the endpoints should be: 0000000000000000001000000111000001000000
+        assert_eq!(
+            bits![
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1,
+                0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0
+            ],
+            table.endpoints
+        );
+    }
+
+    #[test]
+    fn test_block() {
+        let (table, _) = build_table();
+
+        // l = ceil(m / BLOCK_SIZE) = ceil(513 / 256) = 3
+        // and we have a last entry for the integer division rounding, so we should get l + 1 = 4.
+        assert_eq!(
+            4,
+            table.index.entries.len()
+                / (table.index.bit_address_size + table.index.chain_number_size)
+        );
+
+        // one block spans 1820 values (n / l = 5461 / 3).
+        // so when the endpoints reach 1820 we should switch to the second block.
+        let (bit_address, chain_number) = table.index.get_entry(1).unwrap();
+
+        // the first endpoint to reach 1820 is 1820, so its starpoint should be 1820 / 7 = 260.
+        assert_eq!(260, chain_number);
+
+        let (diff, rest) = CompressedTable::rice_decode(table.k, &table.endpoints[bit_address..]);
+
+        // the first delta (not minus one) should be 0, as 1820 - 1820 = 2
+        assert_eq!(0, diff);
+
+        let (diff, _) = CompressedTable::rice_decode(table.k, rest);
+
+        // all the following delta (minus one) should be 6 because the difference between two endpoints is always 7
+        assert_eq!(6, diff);
+    }
+
+    #[test]
+    fn test_iterator() {
+        let (table, chains) = build_table();
+
+        let chains_found = table.into_iter().collect_vec();
+        assert_eq!(chains, chains_found);
+
+        let endpoints_from_second_block = CompressedTableEndpointIterator::from_block(&table, 1)
+            .unwrap()
+            .collect_vec();
+        assert_eq!(
+            chains[260..]
+                .iter()
+                .map(|chain| chain.endpoint)
+                .collect_vec(),
+            endpoints_from_second_block
+        );
+    }
+
+    #[test]
+    fn test_search_endpoints() {
+        let (table, _) = build_table();
+
+        // take an arbitrary endpoint and try to find the chain number again
+        const CHAIN_NUMBER: usize = 420;
+        let chain = table.into_iter().nth(CHAIN_NUMBER).unwrap();
+
+        let search = table.search_endpoints(chain.endpoint);
+        assert_eq!(Some(chain.startpoint), search);
+    }
+
+    #[test]
+    fn test_search() {
+        let ctx = RainbowTableCtxBuilder::new()
+            .chain_length(100)
+            .max_password_length(4)
+            .charset(b"abc")
+            .build()
+            .unwrap();
+        let mut hasher = ctx.hash_function.cpu();
+        let mut search_hash = vec![0; hasher.output_size()];
+
+        let table: CompressedTable = SimpleTable::new_blocking::<CudaRuntime>(ctx)
+            .unwrap()
+            .into_rainbow_table();
+
+        let search = b"abca".to_vec();
+        hasher.update(&search);
+        hasher.finalize_into_reset(&mut search_hash).unwrap();
+
+        let found = table.search(&search_hash);
+        assert_eq!(search, found.unwrap());
+    }
+
+    #[test]
+    fn test_coverage() {
+        let ctx = RainbowTableCtxBuilder::new()
+            .chain_length(100)
+            .max_password_length(4)
+            .charset(b"abcdef")
+            .build()
+            .unwrap();
+        let mut hasher = ctx.hash_function.cpu();
+        let mut search_hash = vec![0; hasher.output_size()];
+
+        let table: CompressedTable = SimpleTable::new_blocking::<CudaRuntime>(ctx.clone())
+            .unwrap()
+            .into_rainbow_table();
+
+        let mut found = 0;
+        for i in 0..ctx.n {
+            let password = counter_to_plaintext(i, &ctx);
+            hasher.update(&password);
+            hasher.finalize_into_reset(&mut search_hash).unwrap();
+            if let Some(plaintext) = table.search(&search_hash) {
+                assert_eq!(password, plaintext);
+                found += 1;
+            }
+        }
+
+        // the success rate should be around 85% - 87%
+        let success_rate = found as f64 / ctx.n as f64 * 100.;
+        assert!(
+            (80. ..90.).contains(&success_rate),
+            "success rate is only {success_rate}"
+        );
+    }
+}

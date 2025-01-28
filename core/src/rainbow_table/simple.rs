@@ -1,24 +1,22 @@
 use std::thread;
 
-use crate::{
-    batch::BatchIterator,
-    event::{Event, SimpleTableHandle},
-    CugparckError, FiltrationIterator,
-};
-
 use crossbeam_channel::{unbounded, Sender};
 use cubecl::prelude::*;
-use cugparck_core::{
-    CompressedPassword, ComptimeGpuCtx, RainbowChain, RainbowTableCtx, RuntimeGpuCtxLaunch,
-};
-use cugparck_cubecl::chains_kernel;
 use indexmap::{map::Iter, IndexMap};
 use nohash_hasher::BuildNoHashHasher;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::RainbowTable;
-use crate::error::CugparckResult;
+use super::{RainbowChain, RainbowTable};
+use crate::{
+    cpu::counter_to_plaintext,
+    ctx::RainbowTableCtx,
+    cube::compute::chains_kernel,
+    error::{CugparckError, CugparckResult},
+    event::{Event, SimpleTableHandle},
+    scheduling::{BatchIterator, FiltrationIterator},
+    CompressedPassword,
+};
 
 /// An indexed Hashmap using the endpoint of a rainbow chain as the key (and hash value) and the chain as the value.
 type RainbowMap =
@@ -106,7 +104,7 @@ impl SimpleTable {
                         .unwrap();
                 }
 
-                let batch = &mut midpoints[dbg!(batch_info.range.clone())];
+                let batch = &mut midpoints[batch_info.range.clone()];
                 let batch_handle = client.create(u64::as_bytes(batch));
 
                 // run the kernel
@@ -129,7 +127,7 @@ impl SimpleTable {
                     chains_kernel::launch_unchecked::<Backend>(
                         &client,
                         CubeCount::Static(batch_info.block_count, 1, 1),
-                        CubeDim::new(dbg!(batch_info.thread_count), 1, 1),
+                        CubeDim::new(batch_info.thread_count, 1, 1),
                         batch_arg,
                         ScalarArg::new(columns.start as u64),
                         ScalarArg::new(columns.end as u64),
@@ -139,17 +137,17 @@ impl SimpleTable {
                 }
 
                 let batch_output = client.read_one(batch_handle.binding());
-                dbg!("casting");
+                // dbg!("casting");
                 let batch_midpoints = CompressedPassword::from_bytes(&batch_output);
-                dbg!(batch_midpoints.iter().take(100).collect::<Vec<_>>());
-                dbg!("extending");
+                // dbg!(batch_midpoints.iter().take(100).collect::<Vec<_>>());
+                // dbg!("extending");
 
                 unique_chains.extend(
                     batch_midpoints
                         .iter()
                         .zip(&startpoints[batch_info.range.clone()]),
                 );
-                dbg!(unique_chains.iter().take(100).collect::<Vec<_>>());
+                // dbg!(unique_chains.iter().take(100).collect::<Vec<_>>());
 
                 if let Some(sender) = &sender {
                     let batch_percent = batch_number as f64 / batch_count as f64;
@@ -227,20 +225,23 @@ impl Iterator for SimpleTableIterator<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         self.inner
             .next()
-            .map(|(endpoint, startpoint)| RainbowChain::from_compressed(*startpoint, *endpoint))
+            .map(|(endpoint, startpoint)| RainbowChain {
+                startpoint: *startpoint,
+                endpoint: *endpoint,
+            })
     }
 }
 
-/* impl std::fmt::Debug for SimpleTable {
+impl std::fmt::Debug for SimpleTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let chains_count = self.chains.len().min(10);
         let some_chains = self.chains.iter().take(chains_count);
 
         for (endpoint, startpoint) in some_chains {
-            let startpoint: Vec<u8> = into_gpu_password(*startpoint, &self.ctx)
+            let startpoint: Vec<u8> = counter_to_plaintext(*startpoint, &self.ctx)
                 .into_iter()
                 .collect();
-            let endpoint: Vec<u8> = into_gpu_password(*endpoint, &self.ctx)
+            let endpoint: Vec<u8> = counter_to_plaintext(*endpoint, &self.ctx)
                 .into_iter()
                 .collect();
 
@@ -253,4 +254,4 @@ impl Iterator for SimpleTableIterator<'_> {
         }
         writeln!(f, "...")
     }
-} */
+}

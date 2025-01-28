@@ -1,8 +1,9 @@
-use crate::{
-    hash::{memcpy, memcpy_to_bigger_type, memcpy_to_smaller_type, rotate_left},
-    Digest, GpuPassword,
+use cubecl::prelude::*;
+
+use crate::cube::{
+    compute::{Digest, Password},
+    hash::utils::{memcpy, rotate_left},
 };
-use cubecl::{debug_print, debug_print_expand, prelude::*};
 
 /// UTF-16LE encodes an ASCII password.
 // #[inline]
@@ -135,7 +136,7 @@ fn md4_process_block(block: &Array<u32>) -> Array<u32> {
 /// A MD4 hash implementation.
 /// Only handles up to 56 input bytes.
 #[cube]
-pub fn md4(password: &GpuPassword) -> Digest {
+pub fn md4(password: &Password) -> Digest {
     // make the input the size of a block
     let mut input = Array::<u8>::new(64);
     for i in 0..password.len() {
@@ -164,13 +165,13 @@ pub fn md4(password: &GpuPassword) -> Digest {
 
 #[cfg(test)]
 mod tests {
-    use crate::{hash::ntlm::md4, test_hash_function};
+    use crate::test_hash_function;
     use cubecl::prelude::*;
 
     #[test]
     fn test_md4() {
         test_hash_function!(
-            md4,
+            crate::cube::hash::ntlm::md4,
             16,
             "message digest",
             &[

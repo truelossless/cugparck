@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::error::CugparckResult;
+use crate::{ctx::RainbowTableCtx, error::CugparckResult, DEFAULT_FILTER_COUNT};
 
 /// Infornations about a batch.
 #[derive(Debug)]
@@ -84,3 +84,58 @@ impl Iterator for BatchIterator {
 }
 
 impl ExactSizeIterator for BatchIterator {}
+
+/// An iterator to get the columns where a filtration should happen.
+pub struct FiltrationIterator {
+    i: usize,
+    current_col: usize,
+    gamma: f64,
+    frac: f64,
+    ctx: RainbowTableCtx,
+}
+
+impl FiltrationIterator {
+    /// Creates a new FiltrationIterator.
+    pub fn new(ctx: RainbowTableCtx) -> Self {
+        // from "Precomputation for Rainbow Tables has Never Been so Fast" theorem 3
+        let gamma = 2. * ctx.n as f64 / ctx.m0 as f64;
+        let frac = (ctx.t as f64 + gamma - 1.) / gamma;
+
+        Self {
+            gamma,
+            frac,
+            ctx,
+            i: 0,
+            current_col: 0,
+        }
+    }
+}
+
+impl Iterator for FiltrationIterator {
+    type Item = Range<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.i == DEFAULT_FILTER_COUNT {
+            self.i += 1;
+            return Some(self.current_col..self.ctx.t as usize - 1);
+        } else if self.i >= DEFAULT_FILTER_COUNT {
+            return None;
+        }
+
+        let filter_col = (self.gamma * self.frac.powf(self.i as f64 / DEFAULT_FILTER_COUNT as f64)
+            - self.gamma) as usize
+            + 2;
+
+        let col = self.current_col;
+
+        self.i += 1;
+        self.current_col = filter_col;
+
+        // same filtration column, it can happen with small tables
+        if col == filter_col {
+            return self.next();
+        }
+
+        Some(col..filter_col)
+    }
+}

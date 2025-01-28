@@ -1,26 +1,11 @@
-mod batch;
-mod error;
-mod event;
-mod rainbow_table;
-mod table_cluster;
+use serde::{Deserialize, Serialize};
 
-pub use {
-    cubecl::cuda::CudaRuntime,
-    cubecl::wgpu::WgpuRuntime,
-    error::CugparckError,
-    event::{Event, SimpleTableHandle},
-    rainbow_table::{CompressedTable, RainbowTable, SimpleTable},
-    table_cluster::TableCluster,
+use crate::{
+    error::{CugparckError, CugparckResult},
+    hash::HashFunction,
+    DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET, DEFAULT_MAX_PASSWORD_LENGTH,
+    DEFAULT_TABLE_NUMBER, MAX_PASSWORD_LENGTH_ALLOWED,
 };
-
-use std::ops::Range;
-
-use cugparck_core::{
-    hash::HashFunction, RainbowTableCtx, DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET,
-    DEFAULT_FILTER_COUNT, DEFAULT_MAX_PASSWORD_LENGTH, DEFAULT_TABLE_NUMBER,
-};
-
-use error::CugparckResult;
 
 /// A builder for a rainbow table context.
 #[derive(Clone)]
@@ -37,11 +22,11 @@ pub struct RainbowTableCtxBuilder {
 impl Default for RainbowTableCtxBuilder {
     fn default() -> Self {
         Self {
-            hash_function: HashFunction::Ntlm,
+            hash_function: HashFunction::Md4,
             charset: DEFAULT_CHARSET.to_owned(),
             max_password_length: DEFAULT_MAX_PASSWORD_LENGTH,
             t: DEFAULT_CHAIN_LENGTH,
-            tn: DEFAULT_TABLE_NUMBER,
+            tn: DEFAULT_TABLE_NUMBER + 1,
             m0: None,
             alpha: DEFAULT_APLHA,
         }
@@ -85,9 +70,10 @@ impl RainbowTableCtxBuilder {
     }
 
     /// Sets the table number of the context.
-    /// Table numbers are 1-indexed.
     pub fn table_number(mut self, table_number: u8) -> Self {
-        self.tn = table_number;
+        // table numbers are 1-indexed internally, so that the reduce function
+        // has more randomness.
+        self.tn = table_number + 1;
 
         self
     }
@@ -112,6 +98,12 @@ impl RainbowTableCtxBuilder {
 
     /// Builds a RainbowTableCtx with the specified parameters.
     pub fn build(mut self) -> CugparckResult<RainbowTableCtx> {
+        if self.max_password_length > MAX_PASSWORD_LENGTH_ALLOWED as u8 {
+            return Err(CugparckError::MaxPasswordLengthExcedeed(
+                MAX_PASSWORD_LENGTH_ALLOWED as u8,
+            ));
+        }
+
         // create the search spaces
         let mut n: u128 = 0;
         let mut search_spaces = Vec::new();
@@ -159,57 +151,38 @@ impl RainbowTableCtxBuilder {
     }
 }
 
-/// An iterator to get the columns where a filtration should happen.
-struct FiltrationIterator {
-    i: usize,
-    current_col: usize,
-    gamma: f64,
-    frac: f64,
-    ctx: RainbowTableCtx,
+/// Context used to store all parameters used to generate a rainbow table.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RainbowTableCtx {
+    /// The number of starting chains to generate.
+    pub m0: u64,
+    /// The hash function used.
+    pub hash_function: HashFunction,
+    /// The charset used.
+    pub charset: Vec<u8>,
+    /// The length of a chain.
+    pub t: u64,
+    /// The maximum password length.
+    pub max_password_length: u8,
+    /// The size of the total search space.
+    pub n: u64,
+    /// A rainbow table has to search through passwords of a variable length.
+    /// This is used to determine the search space for each password length.
+    pub search_spaces: Vec<u64>,
+    /// The table number.
+    pub tn: u8,
 }
 
-impl FiltrationIterator {
-    /// Creates a new FiltrationIterator.
-    fn new(ctx: RainbowTableCtx) -> Self {
-        // from "Precomputation for Rainbow Tables has Never Been so Fast" theorem 3
-        let gamma = 2. * ctx.n as f64 / ctx.m0 as f64;
-        let frac = (ctx.t as f64 + gamma - 1.) / gamma;
-
-        Self {
-            gamma,
-            frac,
-            ctx,
-            i: 0,
-            current_col: 0,
-        }
-    }
-}
-
-impl Iterator for FiltrationIterator {
-    type Item = Range<usize>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.i == DEFAULT_FILTER_COUNT {
-            self.i += 1;
-            return Some(self.current_col..self.ctx.t as usize - 1);
-        } else if self.i >= DEFAULT_FILTER_COUNT {
-            return None;
-        }
-
-        let filter_col = (self.gamma * self.frac.powf(self.i as f64 / DEFAULT_FILTER_COUNT as f64)
-            - self.gamma) as usize
-            + 2;
-
-        let col = self.current_col;
-
-        self.i += 1;
-        self.current_col = filter_col;
-
-        // same filtration column, it can happen with small tables
-        if col == filter_col {
-            return self.next();
-        }
-
-        Some(col..filter_col)
+#[cfg(test)]
+pub fn build_test_ctx() -> RainbowTableCtx {
+    RainbowTableCtx {
+        hash_function: HashFunction::Md4,
+        search_spaces: vec![0, 1, 4, 13, 40, 121, 364],
+        charset: b"abc".to_vec(),
+        max_password_length: DEFAULT_MAX_PASSWORD_LENGTH,
+        t: DEFAULT_CHAIN_LENGTH,
+        tn: DEFAULT_TABLE_NUMBER + 1,
+        m0: 0,
+        n: 0,
     }
 }
