@@ -3,10 +3,6 @@ name = "cugparck-cli"
 version = "0.4.3"
 edition = "2021"
 
-[profile.profiling]
-inherits = "release"
-debug = true
-
 [dependencies]
 cugparck-core = { path = "../core" }
 anyhow = "1.0.58"

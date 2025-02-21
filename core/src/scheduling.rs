@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use cubecl::{client::ComputeClient, Runtime};
+use tokio::task::JoinHandle;
 
 use crate::{
     ctx::RainbowTableCtx, error::CugparckResult, CompressedPassword, DEFAULT_FILTER_COUNT,
@@ -151,28 +151,5 @@ impl Iterator for FiltrationIterator {
         }
 
         Some(col..filter_col)
-    }
-}
-
-pub struct Producer<Backend: Runtime> {
-    pub client: ComputeClient<Backend::Server, Backend::Channel>,
-    pub startpoints: Vec<CompressedPassword>,
-}
-
-impl<Backend: Runtime> Producer<Backend> {
-    pub fn new() -> Self {
-        Self {
-            client: Backend::client(&Default::default()),
-            startpoints: Vec::new(),
-        }
-    }
-}
-
-impl<Backend: Runtime> Clone for Producer<Backend> {
-    fn clone(&self) -> Self {
-        Self {
-            client: self.client.clone(),
-            startpoints: self.startpoints.clone(),
-        }
     }
 }

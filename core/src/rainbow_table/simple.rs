@@ -1,6 +1,8 @@
 use std::{mem, sync::Arc};
 
 use cubecl::prelude::*;
+use futures::StreamExt;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{
     mpsc::{self, unbounded_channel, UnboundedSender},
@@ -15,7 +17,7 @@ use crate::{
     error::CugparckResult,
     event::{Event, SimpleTableHandle},
     rainbow_chain_map::{ChainsMapIterator, RainbowChainMap},
-    scheduling::{BatchIterator, FiltrationIterator, Producer},
+    scheduling::{BatchIterator, FiltrationIterator},
     CompressedPassword,
 };
 
@@ -63,34 +65,38 @@ impl SimpleTable {
         ctx: RainbowTableCtx,
         events: Option<UnboundedSender<Event>>,
     ) -> CugparckResult<Self> {
-        // create multiple clients.
-        // each client has its own stream, so we can maximize the GPU usage and reduce data transfer overhead.
+        // create multiple producers.
+        // each producer is a client with its own stream, so we can maximize the GPU usage and reduce data transfer overhead.
         // See: https://developer.download.nvidia.com/CUDA/training/StreamsAndConcurrencyWebinar.pdf
         const PRODUCER_COUNT: usize = 4;
         let (producer_sender, mut producer_receiver) = mpsc::channel(PRODUCER_COUNT);
-        for _ in 0..PRODUCER_COUNT {
-            producer_sender
-                .send(Producer::<Backend>::new())
-                .await
-                .unwrap();
-        }
 
         let mut current_chains = RainbowChainMap::new(ctx.m0)?;
-        let next_chains = RainbowChainMap::with_startpoints(ctx.m0)?;
-        let next_chains_mutex = Arc::new(Mutex::new(next_chains));
+        let next_chains = Arc::new(Mutex::new(RainbowChainMap::with_startpoints(ctx.m0)?));
+
+        let mut producers = Vec::with_capacity(PRODUCER_COUNT);
+        for _ in 0..PRODUCER_COUNT {
+            producers.push(Backend::client(&Default::default()));
+        }
 
         for columns in FiltrationIterator::new(ctx.clone()) {
+            // make available all producers
+            for producer in &producers {
+                producer_sender.send(producer.clone()).await.unwrap();
+            }
+
             // make the next chains the current chains, and empty next chains
-            mem::swap(&mut current_chains, &mut *next_chains_mutex.lock().await);
-            next_chains_mutex.lock().await.clear();
+            mem::swap(&mut current_chains, &mut *next_chains.lock().await);
+            next_chains.lock().await.clear();
 
             let mut current_chains_iter = current_chains.into_iter();
             let batch_iter = BatchIterator::new(current_chains.len())?.enumerate();
             let batch_count = batch_iter.len() as u64;
 
             for (batch_number, batch_info) in batch_iter {
-                // fetch a producer. This will block until one is available.
-                let mut producer = producer_receiver.recv().await.unwrap();
+                // wait for a producer. This will block until one is available.
+                let producer = producer_receiver.recv().await.unwrap();
+
                 let events = events.clone();
                 let columns = columns.clone();
 
@@ -112,60 +118,52 @@ impl SimpleTable {
                     .take(batch_info.range.len())
                     .unzip();
 
-                let next_chains_mutex = next_chains_mutex.clone();
+                let batch_handle = producer.create(u64::as_bytes(&batch_midpoints));
+
+                // run the kernel
+                unsafe {
+                    let batch_arg =
+                        ArrayArg::from_raw_parts::<u64>(&batch_handle, batch_midpoints.len(), 1);
+                    let charset_handle = producer.create(u8::as_bytes(&ctx.charset));
+                    let charset_arg =
+                        ArrayArg::from_raw_parts::<u8>(&charset_handle, ctx.charset.len(), 1);
+
+                    let search_spaces_handle = producer.create(u64::as_bytes(&ctx.search_spaces));
+                    let search_spaces_arg = ArrayArg::from_raw_parts::<u64>(
+                        &search_spaces_handle,
+                        ctx.search_spaces.len(),
+                        1,
+                    );
+
+                    let (comptime_ctx, runtime_ctx) =
+                        ctx.to_comptime_runtime(charset_arg, search_spaces_arg);
+
+                    chains_kernel::launch_unchecked::<Backend>(
+                        &producer,
+                        CubeCount::Static(batch_info.block_count, 1, 1),
+                        CubeDim::new(batch_info.thread_count, 1, 1),
+                        batch_arg,
+                        ScalarArg::new(columns.start as u64),
+                        ScalarArg::new(columns.end as u64),
+                        runtime_ctx,
+                        comptime_ctx,
+                    );
+                }
+
+                let next_chains = next_chains.clone();
                 let ctx = ctx.clone();
+                let producer_sender = producer_sender.clone();
                 tokio::spawn(async move {
-                    let batch_handle = producer.client.create(u64::as_bytes(&batch_midpoints));
-                    producer.startpoints = batch_startpoints;
-
-                    // run the kernel
-                    unsafe {
-                        let batch_arg = ArrayArg::from_raw_parts::<u64>(
-                            &batch_handle,
-                            batch_midpoints.len(),
-                            1,
-                        );
-                        let charset_handle = producer.client.create(u8::as_bytes(&ctx.charset));
-                        let charset_arg =
-                            ArrayArg::from_raw_parts::<u8>(&charset_handle, ctx.charset.len(), 1);
-
-                        let search_spaces_handle =
-                            producer.client.create(u64::as_bytes(&ctx.search_spaces));
-                        let search_spaces_arg = ArrayArg::from_raw_parts::<u64>(
-                            &search_spaces_handle,
-                            ctx.search_spaces.len(),
-                            1,
-                        );
-
-                        let (comptime_ctx, runtime_ctx) =
-                            ctx.to_comptime_runtime(charset_arg, search_spaces_arg);
-
-                        chains_kernel::launch_unchecked::<Backend>(
-                            &producer.client,
-                            CubeCount::Static(batch_info.block_count, 1, 1),
-                            CubeDim::new(batch_info.thread_count, 1, 1),
-                            batch_arg,
-                            ScalarArg::new(columns.start as u64),
-                            ScalarArg::new(columns.end as u64),
-                            runtime_ctx,
-                            comptime_ctx,
-                        );
-                    }
-
-                    let batch_output = producer.client.read_one_async(batch_handle.binding()).await;
+                    let batch_output = producer.read_one_async(batch_handle.binding()).await;
                     let batch_midpoints = CompressedPassword::from_bytes(&batch_output);
 
-                    dbg!("Extending!");
-                    let mut next_chains = next_chains_mutex.lock().await;
-
-                    for (&startpoint, &midpoint) in producer.startpoints.iter().zip(batch_midpoints)
-                    {
+                    let mut next_chains = next_chains.lock().await;
+                    for (&startpoint, &midpoint) in batch_startpoints.iter().zip(batch_midpoints) {
                         next_chains.insert(RainbowChain {
                             startpoint,
                             endpoint: midpoint,
                         });
                     }
-                    dbg!("Finished extending!");
 
                     if let Some(events) = &events {
                         let batch_percent = batch_number as f64 / batch_count as f64;
@@ -175,12 +173,20 @@ impl SimpleTable {
 
                         events.send(Event::Progress(progress)).unwrap();
                     }
+
+                    // release this producer
+                    producer_sender.send(producer).await.unwrap();
                 });
+            }
+
+            // wait for all producers to finish before starting next batches
+            for _ in 0..PRODUCER_COUNT {
+                producer_receiver.recv().await;
             }
         }
 
         Ok(Self {
-            chains: Arc::into_inner(next_chains_mutex).unwrap().into_inner(),
+            chains: Arc::into_inner(next_chains).unwrap().into_inner(),
             ctx,
         })
     }

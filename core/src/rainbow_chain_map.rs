@@ -25,7 +25,6 @@ pub struct RainbowChainMap {
 
 impl RainbowChainMap {
     pub fn with_startpoints(m0: u64) -> CugparckResult<Self> {
-        dbg!("let it be ", m0);
         let mut inner = Vec::new();
         let cap = (m0 as f64 / LOAD_FACTOR) as usize;
         inner.try_reserve_exact(cap)?;
@@ -78,7 +77,7 @@ impl RainbowChainMap {
             index = (index + 1) % self.cap;
         }
 
-        self.len += index;
+        self.len += 1;
     }
 
     /// Returns the startpoint associated to an endpoint, if it exists.
@@ -113,6 +112,8 @@ impl FromIterator<(u64, u64)> for RainbowChainMap {
     fn from_iter<T: IntoIterator<Item = (u64, u64)>>(iter: T) -> Self {
         let iter = iter.into_iter();
         let len = iter.size_hint().1.unwrap();
+        dbg!(len);
+        unreachable!("{}", len);
 
         let mut inner = Vec::new();
         let cap = (len as f64 / LOAD_FACTOR) as usize;
