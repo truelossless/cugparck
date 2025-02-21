@@ -1,8 +1,6 @@
 use std::{mem, sync::Arc};
 
 use cubecl::prelude::*;
-use futures::StreamExt;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{
     mpsc::{self, unbounded_channel, UnboundedSender},
@@ -16,7 +14,7 @@ use crate::{
     cube::compute::chains_kernel,
     error::CugparckResult,
     event::{Event, SimpleTableHandle},
-    rainbow_chain_map::{ChainsMapIterator, RainbowChainMap},
+    rainbow_chain_map::{RainbowChainMap, RainbowChainMapIterator},
     scheduling::{BatchIterator, FiltrationIterator},
     CompressedPassword,
 };
@@ -110,7 +108,7 @@ impl SimpleTable {
                         .unwrap();
                 }
 
-                let (batch_startpoints, batch_midpoints): (
+                let (batch_midpoints, batch_startpoints): (
                     Vec<CompressedPassword>,
                     Vec<CompressedPassword>,
                 ) = current_chains_iter
@@ -233,7 +231,7 @@ impl<'a> IntoIterator for &'a SimpleTable {
 }
 
 pub struct SimpleTableIterator<'a> {
-    inner: ChainsMapIterator<'a>,
+    inner: RainbowChainMapIterator<'a>,
 }
 
 impl<'a> SimpleTableIterator<'a> {

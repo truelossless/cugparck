@@ -3,7 +3,7 @@ use std::iter;
 use crate::{error::CugparckResult, rainbow_table::RainbowChain, CompressedPassword};
 use serde::{Deserialize, Serialize};
 
-/// Defines how full the map is.
+/// Defines how full the map should be.
 const LOAD_FACTOR: f64 = 0.7;
 
 /// An HashMap implementation specifically tailored for rainbow chains.
@@ -24,6 +24,9 @@ pub struct RainbowChainMap {
 }
 
 impl RainbowChainMap {
+    /// Creates a new RainbowChainMap filled with startpoints.
+    /// This does not create a valid HashMap (i.e., `get` won't work)
+    /// but this is good enough to use a RainbowChainMapIterator to get the startpoints.
     pub fn with_startpoints(m0: u64) -> CugparckResult<Self> {
         let mut inner = Vec::new();
         let cap = (m0 as f64 / LOAD_FACTOR) as usize;
@@ -40,6 +43,7 @@ impl RainbowChainMap {
         })
     }
 
+    /// Creates a new, empty RainbowChainMap.
     pub fn new(m0: u64) -> CugparckResult<Self> {
         let mut inner = Vec::new();
         let cap = (m0 as f64 / LOAD_FACTOR) as usize;
@@ -53,6 +57,9 @@ impl RainbowChainMap {
         self.len = 0;
     }
 
+    /// Inserts a chain into the map.
+    /// If the chain is already present, (i.e., one endpoint is the same as this chain's endpoint,
+    /// regardless of the startpoints) it is discarded.
     #[inline]
     pub fn insert(&mut self, chain: RainbowChain) {
         // let mut index = chain.endpoint as usize % self.cap;
@@ -65,6 +72,7 @@ impl RainbowChainMap {
             // vacant entry, insert here
             if entry == RainbowChain::VACANT {
                 self.inner[index] = chain;
+                self.len += 1;
                 break;
             }
 
@@ -76,8 +84,6 @@ impl RainbowChainMap {
             // hash collision, try to insert in the next entry
             index = (index + 1) % self.cap;
         }
-
-        self.len += 1;
     }
 
     /// Returns the startpoint associated to an endpoint, if it exists.
@@ -112,13 +118,11 @@ impl FromIterator<(u64, u64)> for RainbowChainMap {
     fn from_iter<T: IntoIterator<Item = (u64, u64)>>(iter: T) -> Self {
         let iter = iter.into_iter();
         let len = iter.size_hint().1.unwrap();
-        dbg!(len);
-        unreachable!("{}", len);
 
         let mut inner = Vec::new();
         let cap = (len as f64 / LOAD_FACTOR) as usize;
         inner.try_reserve_exact(cap).unwrap();
-        inner.extend(iter.map(|(startpoint, endpoint)| RainbowChain {
+        inner.extend(iter.map(|(endpoint, startpoint)| RainbowChain {
             startpoint,
             endpoint,
         }));
@@ -129,33 +133,32 @@ impl FromIterator<(u64, u64)> for RainbowChainMap {
 
 impl<'a> IntoIterator for &'a RainbowChainMap {
     type Item = (CompressedPassword, CompressedPassword);
-    type IntoIter = ChainsMapIterator<'a>;
+    type IntoIter = RainbowChainMapIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        ChainsMapIterator {
+        RainbowChainMapIterator {
             chains_map: self,
             idx: 0,
         }
     }
 }
 
-pub struct ChainsMapIterator<'a> {
+pub struct RainbowChainMapIterator<'a> {
     chains_map: &'a RainbowChainMap,
-    idx: u64,
+    idx: usize,
 }
 
-impl Iterator for ChainsMapIterator<'_> {
+impl Iterator for RainbowChainMapIterator<'_> {
     type Item = (CompressedPassword, CompressedPassword);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let &entry = self.chains_map.inner.get(self.idx as usize)?;
+        loop {
+            let &entry = self.chains_map.inner.get(self.idx)?;
+            self.idx += 1;
 
-        self.idx += 1;
-
-        if entry == RainbowChain::VACANT {
-            self.next()
-        } else {
-            Some((entry.startpoint, entry.endpoint))
+            if entry != RainbowChain::VACANT {
+                return Some((entry.endpoint, entry.startpoint));
+            }
         }
     }
 
