@@ -1,6 +1,6 @@
-use std::{ops::Range, thread::JoinHandle};
+use std::ops::Range;
 
-use crossbeam_channel::Receiver;
+use tokio::{sync::mpsc::UnboundedReceiver, task::JoinHandle};
 
 use crate::{error::CugparckResult, rainbow_table::SimpleTable};
 
@@ -17,20 +17,20 @@ pub enum Event {
 }
 
 pub struct SimpleTableHandle {
-    pub(crate) thread_handle: JoinHandle<CugparckResult<SimpleTable>>,
-    pub(crate) receiver: Receiver<Event>,
+    pub(crate) handle: JoinHandle<CugparckResult<SimpleTable>>,
+    pub(crate) receiver: UnboundedReceiver<Event>,
 }
 
 impl SimpleTableHandle {
     /// Returns the generated rainbow table.
     /// Blocks until the table is finished.
-    pub fn join(self) -> CugparckResult<SimpleTable> {
-        self.thread_handle.join().unwrap()
+    pub async fn join(self) -> CugparckResult<SimpleTable> {
+        self.handle.await.unwrap()
     }
 
     /// Blocks until an event is received.
     /// Returns `None` if the rainbow table is finished.
-    pub fn recv(&self) -> Option<Event> {
-        self.receiver.recv().ok()
+    pub async fn recv(&mut self) -> Option<Event> {
+        self.receiver.recv().await
     }
 }

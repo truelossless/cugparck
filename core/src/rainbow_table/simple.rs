@@ -1,32 +1,29 @@
-use std::thread;
+use std::{mem, sync::Arc};
 
-use crossbeam_channel::{unbounded, Sender};
 use cubecl::prelude::*;
-use indexmap::{map::Iter, IndexMap};
-use nohash_hasher::BuildNoHashHasher;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use tokio::sync::{
+    mpsc::{self, unbounded_channel, UnboundedSender},
+    Mutex,
+};
 
 use super::{RainbowChain, RainbowTable};
 use crate::{
     cpu::counter_to_plaintext,
     ctx::RainbowTableCtx,
     cube::compute::chains_kernel,
-    error::{CugparckError, CugparckResult},
+    error::CugparckResult,
     event::{Event, SimpleTableHandle},
-    scheduling::{BatchIterator, FiltrationIterator},
+    rainbow_chain_map::{ChainsMapIterator, RainbowChainMap},
+    scheduling::{BatchIterator, FiltrationIterator, Producer},
     CompressedPassword,
 };
-
-/// An indexed Hashmap using the endpoint of a rainbow chain as the key (and hash value) and the chain as the value.
-type RainbowMap =
-    IndexMap<CompressedPassword, CompressedPassword, BuildNoHashHasher<CompressedPassword>>;
 
 /// A simple rainbow table.
 #[derive(Serialize, Deserialize)]
 pub struct SimpleTable {
     /// The chains of the table.
-    chains: RainbowMap,
+    chains: RainbowChainMap,
     /// The context.
     ctx: RainbowTableCtx,
 }
@@ -36,7 +33,7 @@ impl SimpleTable {
     /// The chains must be made of valid startpoints and endpoints.
     pub fn from_vec(chains: Vec<RainbowChain>, ctx: RainbowTableCtx) -> Self {
         Self {
-            chains: RainbowMap::from_iter(
+            chains: RainbowChainMap::from_iter(
                 chains
                     .into_iter()
                     .map(|chain| (chain.endpoint, chain.startpoint)),
@@ -45,56 +42,59 @@ impl SimpleTable {
         }
     }
 
-    // Returns the startpoints in a vec.
-    fn startpoints(ctx: &RainbowTableCtx) -> CugparckResult<Vec<CompressedPassword>> {
-        let mut vec: Vec<CompressedPassword> = Vec::new();
-        vec.try_reserve_exact(ctx.m0 as usize)?;
-        vec.extend(0..ctx.m0);
-        Ok(vec)
-    }
-
     /// Creates a new simple rainbow table, asynchronously.
     /// Returns an handle to get events related to the generation and to get the generated table.
-    pub fn new_nonblocking<T: Runtime>(ctx: RainbowTableCtx) -> CugparckResult<SimpleTableHandle> {
-        let (sender, receiver) = unbounded();
-        let thread_handle = thread::spawn(move || Self::new::<T>(ctx, Some(sender)));
+    pub async fn new_with_events<Backend: Runtime>(
+        ctx: RainbowTableCtx,
+    ) -> CugparckResult<SimpleTableHandle> {
+        let (sender, receiver) = unbounded_channel();
+        let handle =
+            tokio::spawn(async move { Self::new_impl::<Backend>(ctx, Some(sender)).await });
 
-        Ok(SimpleTableHandle {
-            thread_handle,
-            receiver,
-        })
+        Ok(SimpleTableHandle { handle, receiver })
     }
 
     /// Creates a new simple rainbow table.
-    pub fn new_blocking<Backend: Runtime>(ctx: RainbowTableCtx) -> CugparckResult<Self> {
-        Self::new::<Backend>(ctx, None)
+    pub async fn new<Backend: Runtime>(ctx: RainbowTableCtx) -> CugparckResult<Self> {
+        Self::new_impl::<Backend>(ctx, None).await
     }
 
-    fn new<Backend: Runtime>(
+    async fn new_impl<Backend: Runtime>(
         ctx: RainbowTableCtx,
-        sender: Option<Sender<Event>>,
+        events: Option<UnboundedSender<Event>>,
     ) -> CugparckResult<Self> {
-        let client = Backend::client(&Default::default());
-        let mut startpoints: Vec<CompressedPassword> = Self::startpoints(&ctx)?;
-        let mut midpoints: Vec<CompressedPassword> = startpoints.clone();
+        // create multiple clients.
+        // each client has its own stream, so we can maximize the GPU usage and reduce data transfer overhead.
+        // See: https://developer.download.nvidia.com/CUDA/training/StreamsAndConcurrencyWebinar.pdf
+        const PRODUCER_COUNT: usize = 4;
+        let (producer_sender, mut producer_receiver) = mpsc::channel(PRODUCER_COUNT);
+        for _ in 0..PRODUCER_COUNT {
+            producer_sender
+                .send(Producer::<Backend>::new())
+                .await
+                .unwrap();
+        }
 
-        let mut unique_chains = RainbowMap::default();
-        unique_chains
-            .try_reserve(ctx.m0 as usize)
-            .map_err(|_| CugparckError::IndexMapOutOfMemory)?;
+        let mut current_chains = RainbowChainMap::new(ctx.m0)?;
+        let next_chains = RainbowChainMap::with_startpoints(ctx.m0)?;
+        let next_chains_mutex = Arc::new(Mutex::new(next_chains));
 
         for columns in FiltrationIterator::new(ctx.clone()) {
-            if !unique_chains.is_empty() {
-                unique_chains
-                    .par_drain(..)
-                    .unzip_into_vecs(&mut midpoints, &mut startpoints);
-            }
+            // make the next chains the current chains, and empty next chains
+            mem::swap(&mut current_chains, &mut *next_chains_mutex.lock().await);
+            next_chains_mutex.lock().await.clear();
 
-            let batch_iter = BatchIterator::new(midpoints.len())?.enumerate();
+            let mut current_chains_iter = current_chains.into_iter();
+            let batch_iter = BatchIterator::new(current_chains.len())?.enumerate();
             let batch_count = batch_iter.len() as u64;
 
             for (batch_number, batch_info) in batch_iter {
-                if let Some(sender) = &sender {
+                // fetch a producer. This will block until one is available.
+                let mut producer = producer_receiver.recv().await.unwrap();
+                let events = events.clone();
+                let columns = columns.clone();
+
+                if let Some(sender) = &events {
                     sender
                         .send(Event::Batch {
                             batch_number: batch_number as u64 + 1,
@@ -104,65 +104,83 @@ impl SimpleTable {
                         .unwrap();
                 }
 
-                let batch = &mut midpoints[batch_info.range.clone()];
-                let batch_handle = client.create(u64::as_bytes(batch));
+                let (batch_startpoints, batch_midpoints): (
+                    Vec<CompressedPassword>,
+                    Vec<CompressedPassword>,
+                ) = current_chains_iter
+                    .by_ref()
+                    .take(batch_info.range.len())
+                    .unzip();
 
-                // run the kernel
-                unsafe {
-                    let batch_arg = ArrayArg::from_raw_parts::<u64>(&batch_handle, batch.len(), 1);
-                    let charset_handle = client.create(u8::as_bytes(&ctx.charset));
-                    let charset_arg =
-                        ArrayArg::from_raw_parts::<u8>(&charset_handle, ctx.charset.len(), 1);
+                let next_chains_mutex = next_chains_mutex.clone();
+                let ctx = ctx.clone();
+                tokio::spawn(async move {
+                    let batch_handle = producer.client.create(u64::as_bytes(&batch_midpoints));
+                    producer.startpoints = batch_startpoints;
 
-                    let search_spaces_handle = client.create(u64::as_bytes(&ctx.search_spaces));
-                    let search_spaces_arg = ArrayArg::from_raw_parts::<u64>(
-                        &search_spaces_handle,
-                        ctx.search_spaces.len(),
-                        1,
-                    );
+                    // run the kernel
+                    unsafe {
+                        let batch_arg = ArrayArg::from_raw_parts::<u64>(
+                            &batch_handle,
+                            batch_midpoints.len(),
+                            1,
+                        );
+                        let charset_handle = producer.client.create(u8::as_bytes(&ctx.charset));
+                        let charset_arg =
+                            ArrayArg::from_raw_parts::<u8>(&charset_handle, ctx.charset.len(), 1);
 
-                    let (comptime_ctx, runtime_ctx) =
-                        ctx.to_comptime_runtime(charset_arg, search_spaces_arg);
+                        let search_spaces_handle =
+                            producer.client.create(u64::as_bytes(&ctx.search_spaces));
+                        let search_spaces_arg = ArrayArg::from_raw_parts::<u64>(
+                            &search_spaces_handle,
+                            ctx.search_spaces.len(),
+                            1,
+                        );
 
-                    chains_kernel::launch_unchecked::<Backend>(
-                        &client,
-                        CubeCount::Static(batch_info.block_count, 1, 1),
-                        CubeDim::new(batch_info.thread_count, 1, 1),
-                        batch_arg,
-                        ScalarArg::new(columns.start as u64),
-                        ScalarArg::new(columns.end as u64),
-                        runtime_ctx,
-                        comptime_ctx,
-                    );
-                }
+                        let (comptime_ctx, runtime_ctx) =
+                            ctx.to_comptime_runtime(charset_arg, search_spaces_arg);
 
-                let batch_output = client.read_one(batch_handle.binding());
-                // dbg!("casting");
-                let batch_midpoints = CompressedPassword::from_bytes(&batch_output);
-                // dbg!(batch_midpoints.iter().take(100).collect::<Vec<_>>());
-                // dbg!("extending");
+                        chains_kernel::launch_unchecked::<Backend>(
+                            &producer.client,
+                            CubeCount::Static(batch_info.block_count, 1, 1),
+                            CubeDim::new(batch_info.thread_count, 1, 1),
+                            batch_arg,
+                            ScalarArg::new(columns.start as u64),
+                            ScalarArg::new(columns.end as u64),
+                            runtime_ctx,
+                            comptime_ctx,
+                        );
+                    }
 
-                unique_chains.extend(
-                    batch_midpoints
-                        .iter()
-                        .zip(&startpoints[batch_info.range.clone()]),
-                );
-                // dbg!(unique_chains.iter().take(100).collect::<Vec<_>>());
+                    let batch_output = producer.client.read_one_async(batch_handle.binding()).await;
+                    let batch_midpoints = CompressedPassword::from_bytes(&batch_output);
 
-                if let Some(sender) = &sender {
-                    let batch_percent = batch_number as f64 / batch_count as f64;
-                    let current_col_progress = columns.len() as f64 * batch_percent;
-                    let col_progress = columns.start as f64;
-                    let progress = (col_progress + current_col_progress) / ctx.t as f64 * 100.;
+                    dbg!("Extending!");
+                    let mut next_chains = next_chains_mutex.lock().await;
 
-                    sender.send(Event::Progress(progress)).unwrap();
-                }
+                    for (&startpoint, &midpoint) in producer.startpoints.iter().zip(batch_midpoints)
+                    {
+                        next_chains.insert(RainbowChain {
+                            startpoint,
+                            endpoint: midpoint,
+                        });
+                    }
+                    dbg!("Finished extending!");
+
+                    if let Some(events) = &events {
+                        let batch_percent = batch_number as f64 / batch_count as f64;
+                        let current_col_progress = columns.len() as f64 * batch_percent;
+                        let col_progress = columns.start as f64;
+                        let progress = (col_progress + current_col_progress) / ctx.t as f64 * 100.;
+
+                        events.send(Event::Progress(progress)).unwrap();
+                    }
+                });
             }
         }
 
-        unique_chains.shrink_to_fit();
         Ok(Self {
-            chains: unique_chains,
+            chains: Arc::into_inner(next_chains_mutex).unwrap().into_inner(),
             ctx,
         })
     }
@@ -179,8 +197,9 @@ impl RainbowTable for SimpleTable {
         self.into_iter()
     }
 
+    #[inline]
     fn search_endpoints(&self, password: CompressedPassword) -> Option<CompressedPassword> {
-        self.chains.get(&password).copied()
+        self.chains.get(password)
     }
 
     fn ctx(&self) -> RainbowTableCtx {
@@ -208,13 +227,13 @@ impl<'a> IntoIterator for &'a SimpleTable {
 }
 
 pub struct SimpleTableIterator<'a> {
-    inner: Iter<'a, CompressedPassword, CompressedPassword>,
+    inner: ChainsMapIterator<'a>,
 }
 
 impl<'a> SimpleTableIterator<'a> {
     pub fn new(table: &'a SimpleTable) -> Self {
         Self {
-            inner: table.chains.iter(),
+            inner: table.chains.into_iter(),
         }
     }
 }
@@ -226,8 +245,8 @@ impl Iterator for SimpleTableIterator<'_> {
         self.inner
             .next()
             .map(|(endpoint, startpoint)| RainbowChain {
-                startpoint: *startpoint,
-                endpoint: *endpoint,
+                startpoint,
+                endpoint,
             })
     }
 }
@@ -235,13 +254,13 @@ impl Iterator for SimpleTableIterator<'_> {
 impl std::fmt::Debug for SimpleTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let chains_count = self.chains.len().min(10);
-        let some_chains = self.chains.iter().take(chains_count);
+        let some_chains = self.chains.into_iter().take(chains_count);
 
         for (endpoint, startpoint) in some_chains {
-            let startpoint: Vec<u8> = counter_to_plaintext(*startpoint, &self.ctx)
+            let startpoint: Vec<u8> = counter_to_plaintext(startpoint, &self.ctx)
                 .into_iter()
                 .collect();
-            let endpoint: Vec<u8> = counter_to_plaintext(*endpoint, &self.ctx)
+            let endpoint: Vec<u8> = counter_to_plaintext(endpoint, &self.ctx)
                 .into_iter()
                 .collect();
 

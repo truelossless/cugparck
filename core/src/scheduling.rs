@@ -1,6 +1,10 @@
 use std::ops::Range;
 
-use crate::{ctx::RainbowTableCtx, error::CugparckResult, DEFAULT_FILTER_COUNT};
+use cubecl::{client::ComputeClient, Runtime};
+
+use crate::{
+    ctx::RainbowTableCtx, error::CugparckResult, CompressedPassword, DEFAULT_FILTER_COUNT,
+};
 
 /// Infornations about a batch.
 #[derive(Debug)]
@@ -10,7 +14,7 @@ pub struct BatchInfo {
     pub thread_count: u32,
 }
 
-/// An iterator generating multiple batches, regarding the host's and device's available RAM.
+/// An iterator that batches the chains to process.
 #[derive(Clone)]
 pub struct BatchIterator {
     batch_size: usize,
@@ -23,9 +27,21 @@ pub struct BatchIterator {
 impl BatchIterator {
     /// Creates a new batch iterator where `chains_len` is the total number of chains to generate.
     pub fn new(chains_len: usize) -> CugparckResult<BatchIterator> {
-        // number of batches to do
-        // TODO: better estimate
-        let mut batches = chains_len / 1_000_000_000;
+        // This is the number of CUDA cores of a RTX 5090.
+        // This is the maximum number of threads that can be run in parallel.
+        let cuda_cores = 21_760;
+
+        // Max number of threads per block should range from 512 to 1024.
+        // Since threads are executed in warps of 32, the number of threads should be a multiple of 32.
+        // We shouldn't experience any performance loss for the same reason.
+        let thread_count = 512;
+
+        // Make sure to fill the queues so the SM can work at full capacity.
+        // Since we run multiple batches in parallel, we don't need to put this too high.
+        let fill_factor = 10;
+
+        // this is the number of batches we need to process all the chains
+        let mut batches = chains_len / (cuda_cores * thread_count * fill_factor);
 
         // don't forget the last batch since integer division is rounding down numbers
         let (batch_size, last_batch_size) = if batches == 0 {
@@ -35,14 +51,12 @@ impl BatchIterator {
         };
         batches += 1;
 
-        let thread_count = 512;
-
         Ok(BatchIterator {
             batch_size,
             last_batch_size,
             batches,
             batch_number: 0,
-            thread_count,
+            thread_count: thread_count as u32,
         })
     }
 }
@@ -137,5 +151,28 @@ impl Iterator for FiltrationIterator {
         }
 
         Some(col..filter_col)
+    }
+}
+
+pub struct Producer<Backend: Runtime> {
+    pub client: ComputeClient<Backend::Server, Backend::Channel>,
+    pub startpoints: Vec<CompressedPassword>,
+}
+
+impl<Backend: Runtime> Producer<Backend> {
+    pub fn new() -> Self {
+        Self {
+            client: Backend::client(&Default::default()),
+            startpoints: Vec::new(),
+        }
+    }
+}
+
+impl<Backend: Runtime> Clone for Producer<Backend> {
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client.clone(),
+            startpoints: self.startpoints.clone(),
+        }
     }
 }

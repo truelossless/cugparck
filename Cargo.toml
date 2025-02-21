@@ -3,6 +3,10 @@ strip = true
 lto = true
 codegen-units = 1
 
+[profile.profiling]
+inherits = "release"
+debug = true
+
 [workspace]
 resolver = "2"
 

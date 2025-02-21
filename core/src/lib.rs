@@ -4,6 +4,7 @@ mod cube;
 mod error;
 mod event;
 mod hash;
+mod rainbow_chain_map;
 mod rainbow_table;
 mod scheduling;
 

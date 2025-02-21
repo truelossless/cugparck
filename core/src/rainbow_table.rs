@@ -20,13 +20,19 @@ use serde::{Deserialize, Serialize};
 pub use {cluster::ClusterTable, compressed::CompressedTable, simple::SimpleTable};
 
 /// A chain of the rainbow table, made of a startpoint and an endpoint.
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RainbowChain {
     pub startpoint: CompressedPassword,
     pub endpoint: CompressedPassword,
 }
 
 impl RainbowChain {
+    /// Niche value representing a vacant chain.
+    pub const VACANT: RainbowChain = RainbowChain {
+        startpoint: CompressedPassword::MAX,
+        endpoint: CompressedPassword::MAX,
+    };
+
     pub fn new(
         startpoint: cpu::Password,
         endpoint: cpu::Password,

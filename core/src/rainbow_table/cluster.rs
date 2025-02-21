@@ -31,26 +31,25 @@ impl<'a, T: RainbowTable> ClusterTable<'a, T> {
 #[cfg(test)]
 mod tests {
     use cubecl_cuda::CudaRuntime;
-    use itertools::Itertools;
+    use futures::future::join_all;
 
     use crate::{
         cpu::counter_to_plaintext, rainbow_table::cluster::ClusterTable, RainbowTableCtxBuilder,
         SimpleTable,
     };
 
-    #[test]
-    fn test_coverage() {
+    #[tokio::test]
+    async fn test_coverage() {
         let ctx_builder = RainbowTableCtxBuilder::new()
             .chain_length(100)
             .max_password_length(4)
             .charset(b"abcdef");
 
-        let tables = (0..4)
-            .map(|i| {
-                let ctx = ctx_builder.clone().table_number(i).build().unwrap();
-                SimpleTable::new_blocking::<CudaRuntime>(ctx).unwrap()
-            })
-            .collect_vec();
+        let tables = join_all((0..4).map(async |i| {
+            let ctx = ctx_builder.clone().table_number(i).build().unwrap();
+            SimpleTable::new::<CudaRuntime>(ctx).await.unwrap()
+        }))
+        .await;
 
         let cluster = ClusterTable::new(&tables);
 
