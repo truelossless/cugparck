@@ -9,7 +9,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::{create_dir_to_store_tables, AvailableBackend, Generate};
 
-pub async fn generate(args: Generate) -> Result<()> {
+pub fn generate(args: Generate) -> Result<()> {
     create_dir_to_store_tables(&args.dir)?;
 
     let ext = if args.compress { "rtcde" } else { "rt" };
@@ -27,8 +27,8 @@ pub async fn generate(args: Generate) -> Result<()> {
         let table_path = args.dir.clone().join(format!("table_{i}.{ext}"));
 
         let mut table_handle = match args.backend {
-            AvailableBackend::Wgpu => SimpleTable::new_with_events::<WgpuRuntime>(ctx).await?,
-            AvailableBackend::Cuda => SimpleTable::new_with_events::<CudaRuntime>(ctx).await?,
+            AvailableBackend::Wgpu => SimpleTable::new_with_events::<WgpuRuntime>(ctx)?,
+            AvailableBackend::Cuda => SimpleTable::new_with_events::<CudaRuntime>(ctx)?,
         };
 
         println!("Generating table {i}");
@@ -41,7 +41,7 @@ pub async fn generate(args: Generate) -> Result<()> {
         );
         pb.enable_steady_tick(Duration::from_millis(100));
 
-        while let Some(event) = table_handle.recv().await {
+        while let Some(event) = table_handle.recv() {
             match event {
                 Event::Progress(progress) => pb.set_position((progress * 100.) as u64),
                 Event::Batch {
@@ -55,7 +55,7 @@ pub async fn generate(args: Generate) -> Result<()> {
         }
 
         pb.finish_with_message("Done");
-        let simple_table = table_handle.join().await?;
+        let simple_table = table_handle.join()?;
 
         let disk_error = "Unable to store the generated rainbow table to the disk";
         if args.compress {

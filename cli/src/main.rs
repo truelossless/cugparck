@@ -252,20 +252,19 @@ fn check_hex(hex: &str) -> Result<String> {
     Ok(hex.to_owned())
 }
 
-#[tokio::main]
-async fn main() {
-    if let Err(err) = try_main().await {
+fn main() {
+    if let Err(err) = try_main() {
         eprintln!("{}", style(format!("{:?}", err)).with(Color::Red));
         std::process::exit(1);
     }
 }
 
-async fn try_main() -> Result<()> {
+fn try_main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.commands {
         Commands::Attack(args) => attack(args)?,
-        Commands::Generate(args) => generate(args).await?,
+        Commands::Generate(args) => generate(args)?,
         Commands::Compress(args) => compress(args)?,
         Commands::Decompress(args) => decompress(args)?,
         Commands::Stealdows(args) => todo!(),

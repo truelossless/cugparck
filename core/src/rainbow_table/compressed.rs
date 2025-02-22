@@ -628,8 +628,8 @@ mod tests {
         assert_eq!(Some(chain.startpoint), search);
     }
 
-    #[tokio::test]
-    async fn test_search() {
+    #[test]
+    fn test_search() {
         let ctx = RainbowTableCtxBuilder::new()
             .chain_length(100)
             .max_password_length(4)
@@ -640,7 +640,6 @@ mod tests {
         let mut search_hash = vec![0; hasher.output_size()];
 
         let table: CompressedTable = SimpleTable::new::<CudaRuntime>(ctx)
-            .await
             .unwrap()
             .into_rainbow_table();
 
@@ -652,8 +651,8 @@ mod tests {
         assert_eq!(search, found.unwrap());
     }
 
-    #[tokio::test]
-    async fn test_coverage() {
+    #[test]
+    fn test_coverage() {
         let ctx = RainbowTableCtxBuilder::new()
             .chain_length(100)
             .max_password_length(4)
@@ -664,7 +663,6 @@ mod tests {
         let mut search_hash = vec![0; hasher.output_size()];
 
         let table: CompressedTable = SimpleTable::new::<CudaRuntime>(ctx.clone())
-            .await
             .unwrap()
             .into_rainbow_table();
 

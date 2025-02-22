@@ -1,10 +1,6 @@
 use std::ops::Range;
 
-use tokio::task::JoinHandle;
-
-use crate::{
-    ctx::RainbowTableCtx, error::CugparckResult, CompressedPassword, DEFAULT_FILTER_COUNT,
-};
+use crate::{ctx::RainbowTableCtx, DEFAULT_FILTER_COUNT};
 
 /// Infornations about a batch.
 #[derive(Debug)]
@@ -17,47 +13,55 @@ pub struct BatchInfo {
 /// An iterator that batches the chains to process.
 #[derive(Clone)]
 pub struct BatchIterator {
+    range_start: usize,
     batch_size: usize,
-    last_batch_size: usize,
+    chains_remainder: usize,
     batch_number: usize,
     batches: usize,
     thread_count: u32,
 }
 
 impl BatchIterator {
+    /// This is the number of CUDA cores of a RTX 5090.
+    /// This is the maximum number of threads that can be run in parallel.
+    const CUDA_CORES: usize = 21_760;
+
+    // Max number of threads per block should range from 512 to 1024.
+    // Since threads are executed in warps of 32, the number of threads should be a multiple of 32.
+    // We shouldn't experience any performance loss for the same reason.
+    const THREAD_COUNT: usize = 512;
+
+    /// Make sure to fill the queues so the SM can work at full capacity.
+    /// Since we run multiple batches in parallel, we don't need to put this too high.
+    const FILL_FACTOR: usize = 1;
+
+    /// This is our magic number of chains per batch, taking into account the preceding
+    /// assumptions. A batch size should not be under this value to maximize occupency.
+    const DESIRED_CHAINS_PER_BATCH: usize =
+        Self::CUDA_CORES * Self::THREAD_COUNT * Self::FILL_FACTOR;
+
     /// Creates a new batch iterator where `chains_len` is the total number of chains to generate.
-    pub fn new(chains_len: usize) -> CugparckResult<BatchIterator> {
-        // This is the number of CUDA cores of a RTX 5090.
-        // This is the maximum number of threads that can be run in parallel.
-        let cuda_cores = 21_760;
-
-        // Max number of threads per block should range from 512 to 1024.
-        // Since threads are executed in warps of 32, the number of threads should be a multiple of 32.
-        // We shouldn't experience any performance loss for the same reason.
-        let thread_count = 512;
-
-        // Make sure to fill the queues so the SM can work at full capacity.
-        // Since we run multiple batches in parallel, we don't need to put this too high.
-        let fill_factor = 10;
-
-        // this is the number of batches we need to process all the chains
-        let mut batches = chains_len / (cuda_cores * thread_count * fill_factor);
-
-        // don't forget the last batch since integer division is rounding down numbers
-        let (batch_size, last_batch_size) = if batches == 0 {
-            (chains_len, chains_len)
+    pub fn new(chains_len: usize) -> BatchIterator {
+        // this is the number of batches we need to process all the chains, rounded down
+        let mut batches = chains_len / Self::DESIRED_CHAINS_PER_BATCH;
+        // compute the size of a batch and the chains remainder that should have made the last
+        // batch.
+        let (batch_size, chains_remainder) = if batches == 0 {
+            // we need at least one batch
+            batches += 1;
+            (chains_len, 0)
         } else {
             (chains_len / batches, chains_len % batches)
         };
-        batches += 1;
 
-        Ok(BatchIterator {
+        BatchIterator {
+            range_start: 0,
             batch_size,
-            last_batch_size,
+            chains_remainder,
             batches,
             batch_number: 0,
-            thread_count: thread_count as u32,
-        })
+            thread_count: Self::THREAD_COUNT as u32,
+        }
     }
 }
 
@@ -69,14 +73,22 @@ impl Iterator for BatchIterator {
             return None;
         }
 
-        let size = if self.batch_number == self.batches - 1 {
-            self.last_batch_size
+        // Add part of the remainder that should have made the last batch.
+        // We don't run the last `chains_remainder` chains in its own batch as it would under-occupy the GPU.
+        let batch_size = if self.batch_number < self.chains_remainder {
+            self.batch_size + 1
         } else {
             self.batch_size
         };
 
-        let block_count = (size as u32).div_ceil(self.thread_count).max(1);
-        let range = self.batch_number * self.batch_size..self.batch_number * self.batch_size + size;
+        // range of the chains in this batch
+        let range_end = self.range_start + batch_size;
+        let range = self.range_start..range_end;
+        self.range_start = range_end;
+
+        // compute the block count needed to satisfy the batch size and the fixed thread count.
+        // it does not matter if we overshoot the batch size thanks to the if check in the GPU kernel.
+        let block_count = (batch_size as u32).div_ceil(self.thread_count).max(1);
 
         let batch_info = BatchInfo {
             range,
@@ -85,7 +97,6 @@ impl Iterator for BatchIterator {
         };
 
         self.batch_number += 1;
-
         Some(batch_info)
     }
 
@@ -151,5 +162,70 @@ impl Iterator for FiltrationIterator {
         }
 
         Some(col..filter_col)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use itertools::Itertools;
+
+    use crate::scheduling::BatchIterator;
+
+    #[test]
+    fn test_batch_iterator_small_batch() {
+        let chains_len = 201;
+        let mut total_chains = 0;
+        let batch_iterator = BatchIterator::new(chains_len);
+
+        // only one small batch
+        assert_eq!(1, batch_iterator.len());
+
+        for batch_info in batch_iterator {
+            total_chains += batch_info.range.len();
+        }
+
+        assert_eq!(chains_len, total_chains);
+    }
+
+    #[test]
+    fn test_batch_iterator_perfect_batch_size() {
+        let chains_len = BatchIterator::DESIRED_CHAINS_PER_BATCH * 2;
+        let batch_iterator = BatchIterator::new(chains_len);
+
+        assert_eq!(2, batch_iterator.len());
+
+        for batch_info in batch_iterator {
+            // no remainder, this should perfectly match
+            assert_eq!(
+                batch_info.range.len(),
+                BatchIterator::DESIRED_CHAINS_PER_BATCH
+            );
+        }
+    }
+
+    #[test]
+    fn test_batch_iterator_remainder() {
+        let chains_len = BatchIterator::DESIRED_CHAINS_PER_BATCH * 5 - 1;
+        let mut total_chains = 0;
+        let batch_iterator = BatchIterator::new(chains_len);
+
+        assert_eq!(4, batch_iterator.len());
+
+        let batches = batch_iterator.collect_vec();
+        for batch_info in &batches {
+            // the batch size should always be in [DESIRED_CHAINS_PER_BATCH, DESIRED_CHAINS_PER_BATCH*2]
+            assert!(
+                batch_info.range.len() > BatchIterator::DESIRED_CHAINS_PER_BATCH
+                    && batch_info.range.len() < BatchIterator::DESIRED_CHAINS_PER_BATCH * 2
+            );
+            total_chains += batch_info.range.len();
+        }
+
+        // the first batches should have one element more
+        assert_eq!(
+            batches.first().unwrap().range.len(),
+            batches.last().unwrap().range.len() + 1
+        );
+        assert_eq!(chains_len, total_chains);
     }
 }

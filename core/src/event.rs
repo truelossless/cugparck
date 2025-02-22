@@ -1,8 +1,5 @@
-use std::ops::Range;
-
-use tokio::{sync::mpsc::UnboundedReceiver, task::JoinHandle};
-
 use crate::{error::CugparckResult, rainbow_table::SimpleTable};
+use std::{ops::Range, sync::mpsc::Receiver, thread::JoinHandle};
 
 /// An event to track the progress of the generation of a rainbow table.
 pub enum Event {
@@ -18,19 +15,19 @@ pub enum Event {
 
 pub struct SimpleTableHandle {
     pub(crate) handle: JoinHandle<CugparckResult<SimpleTable>>,
-    pub(crate) receiver: UnboundedReceiver<Event>,
+    pub(crate) receiver: Receiver<Event>,
 }
 
 impl SimpleTableHandle {
     /// Returns the generated rainbow table.
     /// Blocks until the table is finished.
-    pub async fn join(self) -> CugparckResult<SimpleTable> {
-        self.handle.await.unwrap()
+    pub fn join(self) -> CugparckResult<SimpleTable> {
+        self.handle.join().unwrap()
     }
 
     /// Blocks until an event is received.
     /// Returns `None` if the rainbow table is finished.
-    pub async fn recv(&mut self) -> Option<Event> {
-        self.receiver.recv().await
+    pub fn recv(&mut self) -> Option<Event> {
+        self.receiver.recv().ok()
     }
 }

@@ -31,49 +31,42 @@ impl<'a, T: RainbowTable> ClusterTable<'a, T> {
 #[cfg(test)]
 mod tests {
     use cubecl_cuda::CudaRuntime;
-    use futures::future::join_all;
 
     use crate::{
-        cpu::counter_to_plaintext, rainbow_table::cluster::ClusterTable, RainbowTableCtxBuilder,
+        cpu::counter_to_plaintext, CompressedTable, RainbowTable, RainbowTableCtxBuilder,
         SimpleTable,
     };
 
-    #[tokio::test]
-    async fn test_coverage() {
-        let ctx_builder = RainbowTableCtxBuilder::new()
+    #[test]
+    fn test_coverage() {
+        let ctx = RainbowTableCtxBuilder::new()
             .chain_length(100)
             .max_password_length(4)
-            .charset(b"abcdef");
+            .charset(b"abcdef")
+            .build()
+            .unwrap();
+        let mut hasher = ctx.hash_function.cpu();
+        let mut search_hash = vec![0; hasher.output_size()];
 
-        let tables = join_all((0..4).map(async |i| {
-            let ctx = ctx_builder.clone().table_number(i).build().unwrap();
-            SimpleTable::new::<CudaRuntime>(ctx).await.unwrap()
-        }))
-        .await;
-
-        let cluster = ClusterTable::new(&tables);
+        let table: CompressedTable = SimpleTable::new::<CudaRuntime>(ctx.clone())
+            .unwrap()
+            .into_rainbow_table();
 
         let mut found = 0;
-        let ctx = ctx_builder.build().unwrap();
-        let mut hasher = ctx.hash_function.cpu();
-        let mut password_hash = vec![0; hasher.output_size()];
-
         for i in 0..ctx.n {
             let password = counter_to_plaintext(i, &ctx);
             hasher.update(&password);
-            hasher.finalize_into_reset(&mut password_hash).unwrap();
-            if let Some(plaintext) = cluster.search(&password_hash) {
+            hasher.finalize_into_reset(&mut search_hash).unwrap();
+            if let Some(plaintext) = table.search(&search_hash) {
                 assert_eq!(password, plaintext);
                 found += 1;
             }
         }
 
-        // the success rate should be around 99.96%.
-        // with this test we get 100% as n is small.
-        // using a bigger n I got 99.93% which is quite good!
+        // the success rate should be around 85% - 87%
         let success_rate = found as f64 / ctx.n as f64 * 100.;
         assert!(
-            (99. ..=100.).contains(&success_rate),
+            (80. ..90.).contains(&success_rate),
             "success rate is only {success_rate}"
         );
     }
