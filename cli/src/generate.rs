@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use cugparck_core::{
-    CompressedTable, CudaRuntime, Event, RainbowTable, RainbowTableCtxBuilder, SimpleTable,
-    WgpuRuntime,
+    init_setup, CompressedTable, CudaRuntime, Dx12, Event, Metal, OpenGl, RainbowTable,
+    RainbowTableCtxBuilder, SimpleTable, Vulkan, WebGpu, WgpuRuntime,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -22,13 +22,32 @@ pub fn generate(args: Generate) -> Result<()> {
         .charset(args.charset.as_bytes())
         .max_password_length(args.max_password_length);
 
+    match args.backend {
+        AvailableBackend::Dx12 => {
+            init_setup::<Dx12>(&Default::default(), Default::default());
+        }
+        AvailableBackend::Metal => {
+            init_setup::<Metal>(&Default::default(), Default::default());
+        }
+        AvailableBackend::OpenGl => {
+            init_setup::<OpenGl>(&Default::default(), Default::default());
+        }
+        AvailableBackend::Vulkan => {
+            init_setup::<Vulkan>(&Default::default(), Default::default());
+        }
+        AvailableBackend::WebGpu => {
+            init_setup::<WebGpu>(&Default::default(), Default::default());
+        }
+        _ => (),
+    }
+
     for i in args.start_from..args.start_from + args.table_count {
         let ctx = ctx_builder.clone().table_number(i).build()?;
         let table_path = args.dir.clone().join(format!("table_{i}.{ext}"));
 
         let mut table_handle = match args.backend {
-            AvailableBackend::Wgpu => SimpleTable::new_with_events::<WgpuRuntime>(ctx)?,
             AvailableBackend::Cuda => SimpleTable::new_with_events::<CudaRuntime>(ctx)?,
+            _ => SimpleTable::new_with_events::<WgpuRuntime>(ctx)?,
         };
 
         println!("Generating table {i}");

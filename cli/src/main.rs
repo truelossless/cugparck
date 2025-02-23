@@ -62,12 +62,17 @@ impl From<HashFunctionArg> for HashFunction {
 }
 
 /// All the backends available on this target, with the current feature flags.
-
+// TODO: Fix feature registration that prevents shader non-vulkan WGPU backends to work
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Default)]
+#[clap(rename_all = "lower")]
 pub enum AvailableBackend {
-    #[default]
     Cuda,
-    Wgpu,
+    Dx12,
+    Metal,
+    OpenGl,
+    #[default]
+    Vulkan,
+    WebGpu,
 }
 
 /// Cugparck is a modern rainbow table library & CLI.
@@ -175,7 +180,7 @@ pub struct Generate {
     compress: bool,
 
     /// Force a backend for the table generation.
-    /// If not provided, the fastest will be used.
+    /// If not provided, Vulkan will be used.
     #[clap(short, long, value_enum, default_value_t)]
     backend: AvailableBackend,
 
@@ -275,8 +280,14 @@ fn try_main() -> Result<()> {
 
 /// Helper function to create a directory where will be stored rainbow tables.
 fn create_dir_to_store_tables(dir: &Path) -> Result<()> {
+    if dir.is_dir() && dir.read_dir()?.next().is_none() {
+        return Ok(());
+    }
+
     fs::create_dir(dir)
-        .context("Unable to create the specified directory to store the rainbow tables")
+        .context("An existing, non-empty directory already exists at the specified path")?;
+
+    Ok(())
 }
 
 /// Helper function to get the table paths from a directory.

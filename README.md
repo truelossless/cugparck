@@ -19,24 +19,24 @@ In particular, it implements the following features that may not be present in o
 ## Features
 
 - Rainbow table generation (also called offline phase)
-    - GPU-accelerated rainbow table generation for CUDA-capable devices
-    - Multithreaded CPU rainbow table generation for other devices
-    - Compressed delta encoding
-    - Maximality factor support
-    - Filtration
-    - Charset, maximum password length, chain length ... customization
-    - Ability to generate multiple rainbow tables to bump the success rate
-    - Close to the rainbow table theory [4, 5]. A single rainbow table has a success rate of 86.5%, while 4 tables are close to 99.96%.
+  - GPU-accelerated rainbow table generation via CUDA or Vulkan
+  - Multithreaded CPU rainbow table generation for other devices
+  - Compressed delta encoding
+  - Maximality factor support
+  - Filtration
+  - Charset, maximum password length, chain length ... customization
+  - Ability to generate multiple rainbow tables to bump the success rate
+  - Close to the rainbow table theory [4, 5]. A single rainbow table has a success rate of 86.5%, while 4 tables are close to 99.96%.
 
 - Attack using rainbow tables (also called online phase)
-    - Fast table loading using full zero-copy deserialization and memory-mapped buffers
-    - Multithreaded CPU attack
-    - NTLM, MD4, MD5, SHA-1, SHA-2, SHA-3 support
+  - Fast table loading using full zero-copy deserialization and memory-mapped buffers
+  - Multithreaded CPU attack
+  - NTLM, MD4, MD5, SHA-1, SHA-2, SHA-3 support
 
 - Windows accounts dumping and cracking
-    - Dump the NTLM hashes from Windows accounts
-    - Supports legacy RC4 encryption as well as AES encryption (Windows >= 1607)
-    - Automatically try to crack the dumped hashes
+  - Dump the NTLM hashes from Windows accounts
+  - Supports legacy RC4 encryption as well as AES encryption (Windows >= 1607)
+  - Automatically try to crack the dumped hashes
 
 ## Installation
 
@@ -67,6 +67,7 @@ I'm currently developing this on a GTX 1060 with 16Go of RAM, so I can't really 
 I have done my best to avoid overflows (floats are used in formulas that may exceed u64::MAX, wrapping operations are used when needed etc.) but incorrect behaviors are very likely to happen as I can't test correctly big search spaces. So any help on testing Cugparck with big search spaces is appreciated.
 
 Besides that, here is a list of things that could be improved/implemented/tested:
+
 - Better memory management, such as more precise memory predictions for the device's memory and host's RAM. This would allow to schedule better batches on the GPU, and make sure that no memory allocation fails
 - Support for external memory (SSD and/or HDD). I think [6] should be a great startpoint (pun intended)
 - Support for distribution. Maybe MPI can be used? [3] Section 4 gives pointers to implement a distributed architecture with filtration
@@ -77,15 +78,16 @@ Besides that, here is a list of things that could be improved/implemented/tested
 
 This work is a continuation of a school project which studies the feasability of rainbow tables generation using the GPU.
 
-I made a first single-threaded CPU implementation in C at https://github.com/gpucrack/NaiveRainbow.
+I made a first single-threaded CPU implementation in C at <https://github.com/gpucrack/NaiveRainbow>.
 
-My group continued the GPU implementation at https://github.com/gpucrack/GPUCrack but unfortunately I couldn't finish the project with them as I was abroad. This is why I decided to start Cugparck as a personal project, to further explore rainbow tables for fun.
+My group continued the GPU implementation at <https://github.com/gpucrack/GPUCrack> but unfortunately I couldn't finish the project with them as I was abroad. This is why I decided to start Cugparck as a personal project, to further explore rainbow tables for fun.
 
 This project wouldn't have been remotely possible without the help and explanations of our teachers, so all the credit goes to them!
 
 In the interest of not associating this side project with anyone or accidently doxxing anyone, I am not mentioning directly any name. If you recognize yourself and want to be associated with this project, I'll be more than happy to include you in this section!
 
 I would also like to thank all the contributors who helped create the excellent libraries used throughout this project. To name a few:
+
 - [The Rust CUDA Project](https://github.com/Rust-GPU/Rust-CUDA)
 - [rkyv](https://rkyv.org/)
 - [Rayon](https://github.com/rayon-rs/rayon)
@@ -93,7 +95,7 @@ I would also like to thank all the contributors who helped create the excellent 
 
 ## Bibliography
 
-[1] Wikipedia contributors. (2022, July 2). Rainbow table. In Wikipedia, The Free Encyclopedia. Retrieved 08:46, July 14, 2022, from https://en.wikipedia.org/w/index.php?title=Rainbow_table&oldid=1096095323
+[1] Wikipedia contributors. (2022, July 2). Rainbow table. In Wikipedia, The Free Encyclopedia. Retrieved 08:46, July 14, 2022, from <https://en.wikipedia.org/w/index.php?title=Rainbow_table&oldid=1096095323>
 
 [2] Avoine, Gildas & Carpent, Xavier. (2013). Optimal Storage for Rainbow Tables. 10.1007/978-3-319-12160-4_9.
 
@@ -106,3 +108,4 @@ I would also like to thank all the contributors who helped create the excellent 
 [6] Avoine, G., Carpent, X., Kordy, B., & Tardif, F. (2017, July). How to handle rainbow tables with external memory. In Australasian Conference on Information Security and Privacy (pp. 306-323). Springer, Cham.
 
 [7] Avoine, G., Junod, P., & Oechslin, P. (2005, December). Time-memory trade-offs: False alarm detection using checkpoints. In International Conference on Cryptology in India (pp. 183-196). Springer, Berlin, Heidelberg.
+

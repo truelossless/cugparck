@@ -8,6 +8,8 @@ mod rainbow_chain_map;
 mod rainbow_table;
 mod scheduling;
 
+pub use cubecl_wgpu::{init_setup, Dx12, Metal, OpenGl, Vulkan, WebGpu};
+
 pub use {
     cpu::{Digest, Password},
     ctx::{RainbowTableCtx, RainbowTableCtxBuilder},

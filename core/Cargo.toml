@@ -18,7 +18,9 @@ cubecl = { git = "https://github.com/tracel-ai/cubecl", default-features = false
   "wgpu",
 ] }
 cubecl-cuda = { git = "https://github.com/tracel-ai/cubecl", default-features = false }
-cubecl-wgpu = { git = "https://github.com/tracel-ai/cubecl", default-features = false }
+cubecl-wgpu = { git = "https://github.com/tracel-ai/cubecl", default-features = false, features = [
+  "spirv",
+] }
 cubecl-runtime = { git = "https://github.com/tracel-ai/cubecl", default-features = true }
 serde = { version = "1.0.217", features = ["derive"] }
 arrayvec = "0.7.6"
