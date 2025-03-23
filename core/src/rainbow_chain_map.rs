@@ -167,3 +167,9 @@ impl Iterator for RainbowChainMapIterator<'_> {
         (len, Some(len))
     }
 }
+
+impl ExactSizeIterator for RainbowChainMapIterator<'_> {
+    fn len(&self) -> usize {
+        self.chains_map.len()
+    }
+}

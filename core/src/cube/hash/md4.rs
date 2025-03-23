@@ -1,4 +1,14 @@
+use ::md4::Md4Core;
 use cubecl::prelude::*;
+use digest::{
+    block_buffer::Eager,
+    consts::{U16, U64},
+    core_api::{
+        Block, BlockSizeUser, Buffer, BufferKindUser, CoreWrapper, FixedOutputCore, UpdateCore,
+    },
+    HashMarker, Output, OutputSizeUser, Reset,
+};
+use itertools::Itertools;
 
 use crate::cube::{
     compute::{Digest, Password},
@@ -6,24 +16,74 @@ use crate::cube::{
 };
 
 /// UTF-16LE encodes an ASCII password.
-// #[inline]
-// fn utf16_le(password: &[u8]) -> ArrayVec<[u8; MAX_PASSWORD_LENGTH_ALLOWED * 2]> {
-//     let mut buf = ArrayVec::new();
+#[cube]
+fn utf16_le(password: &Password, #[comptime] max_password_len: u8) -> Password {
+    let mut encoded = Password::new(comptime!(max_password_len * 2));
+    for i in 0..password.len {
+        encoded.push(password.data[i as u32]);
+        encoded.push(0);
+    }
 
-//     for el in password {
-//         buf.push(*el);
-//         buf.push(0);
-//     }
-
-//     buf
-// }
+    encoded
+}
 
 /// Hashes a password using NTLM.
-// #[cube]
-// pub fn ntlm(password: Digest) -> Digest {
-//     md4(utf16_le(password))
-// }
-//
+#[cube]
+pub fn ntlm(password: &Password, #[comptime] max_password_len: u8) -> Digest {
+    let utf16_le_password = utf16_le(password, max_password_len);
+    md4(&utf16_le_password)
+}
+
+/// Wrapper over Rust-Crypto's Md4 since Ntlm is not supported natively.
+pub type Ntlm = CoreWrapper<NtlmCore>;
+
+#[derive(Default, Clone)]
+pub struct NtlmCore(Md4Core);
+
+impl HashMarker for NtlmCore {}
+
+impl BlockSizeUser for NtlmCore {
+    type BlockSize = U64;
+}
+
+impl BufferKindUser for NtlmCore {
+    type BufferKind = Eager;
+}
+
+impl OutputSizeUser for NtlmCore {
+    type OutputSize = U16;
+}
+
+impl UpdateCore for NtlmCore {
+    #[inline]
+    fn update_blocks(&mut self, _blocks: &[Block<Self>]) {
+        unreachable!()
+    }
+}
+
+impl FixedOutputCore for NtlmCore {
+    #[inline]
+    fn finalize_fixed_core(&mut self, buffer: &mut Buffer<Self>, out: &mut Output<Self>) {
+        // This will only work for one block, as the GPU version.
+        let utf16_le_block = Block::<Self>::from_iter(
+            buffer
+                .get_data()
+                .iter()
+                .copied()
+                .interleave(std::iter::repeat_n(0, buffer.get_pos()))
+                .chain(std::iter::repeat_n(0, 64 - buffer.get_pos() * 2)),
+        );
+        buffer.set(utf16_le_block, buffer.get_pos() * 2);
+        self.0.finalize_fixed_core(buffer, out)
+    }
+}
+
+impl Reset for NtlmCore {
+    #[inline]
+    fn reset(&mut self) {
+        *self = Default::default();
+    }
+}
 
 #[cube]
 pub fn md4_f(x: u32, y: u32, z: u32) -> u32 {
@@ -165,18 +225,80 @@ pub fn md4(password: &Password) -> Digest {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_hash_function;
+    use std::ops::Deref;
+
+    use crate::{
+        cube::compute::{Digest, Password},
+        test_hash_function,
+    };
     use cubecl::prelude::*;
+    use digest::{Digest as _, DynDigest};
+
+    use super::Ntlm;
 
     #[test]
     fn test_md4() {
         test_hash_function!(
-            crate::cube::hash::ntlm::md4,
+            crate::cube::hash::md4::md4,
             16,
             "message digest",
             &[
                 0xd9, 0x13, 0x0a, 0x81, 0x64, 0x54, 0x9f, 0xe8, 0x18, 0x87, 0x48, 0x06, 0xe1, 0xc7,
                 0x01, 0x4b
+            ]
+        );
+    }
+
+    #[test]
+    fn test_ntlm_cpu() {
+        let mut hasher: Box<dyn DynDigest> = Box::new(Ntlm::new());
+        hasher.update(b"password");
+        let out = hasher.finalize();
+        assert_eq!(
+            &[
+                0x88u8, 0x46, 0xF7, 0xEA, 0xEE, 0x8F, 0xB1, 0x17, 0xAD, 0x06, 0xBD, 0xD8, 0x30,
+                0xB7, 0x58, 0x6C,
+            ],
+            out.deref()
+        );
+
+        let mut hasher: Box<dyn DynDigest> = Box::new(Ntlm::new());
+        hasher.update(b"abc");
+        let out = hasher.finalize();
+        assert_eq!(
+            out.deref(),
+            &[
+                0xE0, 0xFB, 0xA3, 0x82, 0x68, 0xD0, 0xEC, 0x66, 0xEF, 0x1C, 0xB4, 0x52, 0xD5, 0x88,
+                0x5E, 0x53
+            ]
+        )
+    }
+
+    /// `test_hash_function` requires a hash function with one input parameter
+    #[cube]
+    fn ntlm_adapter(password: &Password) -> Digest {
+        crate::cube::hash::md4::ntlm(password, 20)
+    }
+
+    #[test]
+    fn test_ntlm() {
+        test_hash_function!(
+            ntlm_adapter,
+            16,
+            "password",
+            &[
+                0x88u8, 0x46, 0xF7, 0xEA, 0xEE, 0x8F, 0xB1, 0x17, 0xAD, 0x06, 0xBD, 0xD8, 0x30,
+                0xB7, 0x58, 0x6C,
+            ]
+        );
+
+        test_hash_function!(
+            ntlm_adapter,
+            16,
+            "abc",
+            &[
+                0xE0, 0xFB, 0xA3, 0x82, 0x68, 0xD0, 0xEC, 0x66, 0xEF, 0x1C, 0xB4, 0x52, 0xD5, 0x88,
+                0x5E, 0x53
             ]
         );
     }

@@ -272,7 +272,7 @@ fn try_main() -> Result<()> {
         Commands::Generate(args) => generate(args)?,
         Commands::Compress(args) => compress(args)?,
         Commands::Decompress(args) => decompress(args)?,
-        Commands::Stealdows(args) => todo!(),
+        Commands::Stealdows(_args) => todo!(),
     }
 
     Ok(())
@@ -380,7 +380,7 @@ fn search_tables(
         (true, false) => {
             let tables = table_paths
                 .iter()
-                .map(|mmap| CompressedTable::load(mmap))
+                .map(|path| CompressedTable::load(path))
                 .collect::<Result<Vec<_>, _>>()?;
 
             Ok(ClusterTable::new(&tables).search(&digest))
@@ -399,7 +399,7 @@ fn search_tables(
         (false, false) => {
             let tables = table_paths
                 .iter()
-                .map(|mmap| SimpleTable::load(mmap))
+                .map(|table| SimpleTable::load(table))
                 .collect::<Result<Vec<_>, _>>()?;
 
             Ok(ClusterTable::new(&tables).search(&digest))

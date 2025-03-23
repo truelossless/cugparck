@@ -22,7 +22,7 @@ pub struct RainbowTableCtxBuilder {
 impl Default for RainbowTableCtxBuilder {
     fn default() -> Self {
         Self {
-            hash_function: HashFunction::Md4,
+            hash_function: HashFunction::Ntlm,
             charset: DEFAULT_CHARSET.to_owned(),
             max_password_length: DEFAULT_MAX_PASSWORD_LENGTH,
             t: DEFAULT_CHAIN_LENGTH,
@@ -152,7 +152,7 @@ impl RainbowTableCtxBuilder {
 }
 
 /// Context used to store all parameters used to generate a rainbow table.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RainbowTableCtx {
     /// The number of starting chains to generate.
     pub m0: u64,

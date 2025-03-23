@@ -48,7 +48,7 @@ impl RainbowChain {
 /// Trait that data structures implement to be used as rainbow tables.
 pub trait RainbowTable: Sized + Sync + Serialize + for<'a> Deserialize<'a> {
     /// The type of the iterator over the chains of the table.
-    type Iter<'a>: Iterator<Item = RainbowChain>
+    type Iter<'a>: ExactSizeIterator<Item = RainbowChain> + 'a
     where
         Self: 'a;
 

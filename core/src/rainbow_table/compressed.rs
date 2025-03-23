@@ -299,6 +299,16 @@ impl Iterator for CompressedTableIterator<'_> {
             endpoint,
         })
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.table.m, Some(self.table.m))
+    }
+}
+
+impl ExactSizeIterator for CompressedTableIterator<'_> {
+    fn len(&self) -> usize {
+        self.table.m
+    }
 }
 
 /// An iterator over the endpoints of a compressed delta encoding table.
@@ -394,6 +404,7 @@ mod tests {
             compressed::{CompressedTableEndpointIterator, Index},
             RainbowChain, RainbowTable, SimpleTable,
         },
+        HashFunction,
     };
 
     use super::{CompressedTable, BLOCK_SIZE};
@@ -631,6 +642,7 @@ mod tests {
     #[test]
     fn test_search() {
         let ctx = RainbowTableCtxBuilder::new()
+            .hash(HashFunction::Md4)
             .chain_length(100)
             .max_password_length(4)
             .charset(b"abc")

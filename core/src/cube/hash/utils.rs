@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 
 #[macro_export]
 macro_rules! test_hash_function {
-    ($hash_function:expr, $digest_size:literal, $input:literal, $expected_digest:expr) => {{
+    ($hash_function:expr, $digest_size:literal, $input:expr, $expected_digest:expr) => {{
         use cubecl::prelude::*;
         use cubecl_cuda::CudaRuntime;
 

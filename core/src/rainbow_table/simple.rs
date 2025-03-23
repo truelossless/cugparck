@@ -261,6 +261,16 @@ impl Iterator for SimpleTableIterator<'_> {
                 endpoint,
             })
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl ExactSizeIterator for SimpleTableIterator<'_> {
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
 }
 
 impl std::fmt::Debug for SimpleTable {

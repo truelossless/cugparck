@@ -1,6 +1,7 @@
 use core::fmt::Debug;
-use cube::hash::ntlm::md4;
+use cube::hash::md4::{md4, ntlm};
 use cubecl::prelude::*;
+use std::hash::Hash;
 
 use crate::{ctx::RainbowTableCtx, cube, hash::HashFunction, CompressedPassword};
 
@@ -26,17 +27,17 @@ pub fn chains_kernel(
 }
 
 /// An ASCII password stored in a stack-allocated vector that lives on the GPU.
-#[derive(CubeLaunch)]
+#[derive(CubeType, CubeLaunch)]
 pub struct Password {
     pub data: Array<u8>,
-    len: u8,
+    pub len: u8,
 }
 
 #[cube]
 impl Password {
-    pub fn new(#[comptime] comptime_ctx: ComptimeGpuCtx) -> Self {
+    pub fn new(#[comptime] max_password_length: u8) -> Self {
         Password {
-            data: Array::new(comptime!(comptime_ctx.max_password_length as u32)),
+            data: Array::new(comptime!(max_password_length as u32)),
             len: 0,
         }
     }
@@ -63,8 +64,13 @@ pub fn continue_chain(
 
     for i in columns_start..columns_end {
         let plaintext = counter_to_plaintext(compressed_password2, runtime_ctx, comptime_ctx);
-        // TODO: comptime match on the right hash function
-        let digest = md4(&plaintext);
+
+        let digest = match comptime!(comptime_ctx.hash_function) {
+            HashFunction::Md4 => md4(&plaintext),
+            HashFunction::Ntlm => ntlm(&plaintext, comptime_ctx.max_password_length),
+            _ => todo!("Reimplement all hash functions"),
+        };
+
         compressed_password2 = reduce(digest, i, runtime_ctx);
     }
 
@@ -95,11 +101,9 @@ pub fn ascii_to_charset(c: u8, charset: &Array<u8>) -> u8 {
 pub type Digest = Array<u8>;
 
 /// The runtime context of the rainbow table.
-#[derive(CubeLaunch)]
+#[derive(CubeType, CubeLaunch)]
 pub struct RuntimeGpuCtx {
-    pub m0: u64,
     pub charset: Array<u8>,
-    pub t: u64,
     pub n: u64,
     pub search_spaces: Array<u64>,
     pub tn: u8,
@@ -124,13 +128,11 @@ impl RainbowTableCtx {
         let comptime_ctx = ComptimeGpuCtx {
             digest_size: self.hash_function.cpu().output_size() as u16,
             max_password_length: self.max_password_length,
-            hash_function: self.hash_function,
+            hash_function: dbg!(self.hash_function),
         };
 
         let runtime_ctx = RuntimeGpuCtxLaunch::new(
-            ScalarArg::new(self.m0),
             charset_arg,
-            ScalarArg::new(self.t),
             ScalarArg::new(self.n),
             search_spaces_arg,
             ScalarArg::new(self.tn),
@@ -163,7 +165,7 @@ pub fn counter_to_plaintext(
     runtime_ctx: &RuntimeGpuCtx,
     #[comptime] comptime_ctx: ComptimeGpuCtx,
 ) -> Password {
-    let mut search_space_index: u32 = runtime_ctx.search_spaces.len() - 1;
+    let mut search_space_index = runtime_ctx.search_spaces.len() - 1;
     let mut counter2 = counter;
 
     loop {
@@ -173,7 +175,7 @@ pub fn counter_to_plaintext(
         }
         search_space_index -= 1;
     }
-    let mut plaintext = Password::new(comptime_ctx);
+    let mut plaintext = Password::new(comptime_ctx.max_password_length);
 
     counter2 -= runtime_ctx.search_spaces[search_space_index];
 
@@ -190,13 +192,13 @@ pub fn counter_to_plaintext(
 
 /// Creates a counter from a plaintext.
 #[cube]
-fn plaintext_to_counter(plaintext: Password, ctx: &RuntimeGpuCtx) -> CompressedPassword {
-    let mut counter = ctx.search_spaces[plaintext.len()];
+fn plaintext_to_counter(plaintext: Password, runtime_ctx: &RuntimeGpuCtx) -> CompressedPassword {
+    let mut counter = runtime_ctx.search_spaces[plaintext.len()];
     let mut charset_base = 1;
 
     for i in 0..plaintext.len() {
-        counter += ascii_to_charset(plaintext.data[i], &ctx.charset) as u64 * charset_base;
-        charset_base *= ctx.charset.len() as u64;
+        counter += ascii_to_charset(plaintext.data[i], &runtime_ctx.charset) as u64 * charset_base;
+        charset_base *= runtime_ctx.charset.len() as u64;
     }
 
     counter
