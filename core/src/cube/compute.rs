@@ -128,7 +128,7 @@ impl RainbowTableCtx {
         let comptime_ctx = ComptimeGpuCtx {
             digest_size: self.hash_function.cpu().output_size() as u16,
             max_password_length: self.max_password_length,
-            hash_function: dbg!(self.hash_function),
+            hash_function: self.hash_function,
         };
 
         let runtime_ctx = RuntimeGpuCtxLaunch::new(
@@ -145,7 +145,7 @@ impl RainbowTableCtx {
 /// Reduces a digest into a password.
 // Notice how we multiply the table number with the iteration instead of just adding it.
 // This allows the reduce functions to be very different from one table to another.
-// On 4 tables, it bumps the success rate from 96.5% to 99.9% (way closer to the theorical bound).
+// On 4 tables, it bumps the success rate from 96.5% to 99.9% (way closer to the theoritical bound).
 #[cube]
 pub fn reduce(digest: Digest, iteration: u64, runtime_ctx: &RuntimeGpuCtx) -> CompressedPassword {
     // we can use the 8 first bytes of the digest as the seed, since it is pseudo-random.

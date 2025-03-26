@@ -173,6 +173,15 @@ pub struct RainbowTableCtx {
     pub tn: u8,
 }
 
+impl RainbowTableCtx {
+    /// Gets the theoritical number of unique chains at position i.
+    pub fn mi(&self, i: u64) -> u64 {
+        let gamma = 2. * self.n as f64 / self.m0 as f64;
+        let mi = 2. * self.n as f64 / (i as f64 + gamma);
+        mi as u64
+    }
+}
+
 #[cfg(test)]
 pub fn build_test_ctx() -> RainbowTableCtx {
     RainbowTableCtx {

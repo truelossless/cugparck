@@ -89,6 +89,15 @@ impl SimpleTable {
             mem::swap(&mut current_chains, &mut *next_chains.lock().unwrap());
             next_chains.lock().unwrap().clear();
 
+            if let Some(events) = &events {
+                events
+                    .send(Event::FiltrationStep {
+                        col_start: columns.start as u64,
+                        unique_chains: current_chains.len(),
+                    })
+                    .unwrap();
+            }
+
             let mut current_chains_iter = current_chains.into_iter();
             let batch_iter = BatchIterator::new(current_chains.len()).enumerate();
             let batch_count = batch_iter.len() as u64;
@@ -191,10 +200,17 @@ impl SimpleTable {
             }
         }
 
-        Ok(Self {
-            chains: Arc::into_inner(next_chains).unwrap().into_inner().unwrap(),
-            ctx,
-        })
+        let chains = Arc::into_inner(next_chains).unwrap().into_inner().unwrap();
+        if let Some(events) = &events {
+            events
+                .send(Event::FiltrationStep {
+                    col_start: ctx.t,
+                    unique_chains: chains.len(),
+                })
+                .unwrap();
+        }
+
+        Ok(Self { chains, ctx })
     }
 }
 

@@ -14,14 +14,14 @@ pub use {
     cpu::{Digest, Password},
     ctx::{RainbowTableCtx, RainbowTableCtxBuilder},
     cubecl::{cuda::CudaRuntime, wgpu::WgpuRuntime},
-    event::Event,
+    event::{Event, SimpleTableHandle},
     hash::HashFunction,
     rainbow_table::{ClusterTable, CompressedTable, RainbowTable, SimpleTable},
 };
 
 /// The default number of filters.
 /// "Precomputation for Rainbow Tables has Never Been so Fast" figure 3 shows that 20 is a reasonable number.
-const DEFAULT_FILTER_COUNT: usize = 20;
+pub const DEFAULT_FILTER_COUNT: usize = 20;
 
 /// The default chain length.
 pub const DEFAULT_CHAIN_LENGTH: u64 = 10_000;

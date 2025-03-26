@@ -163,15 +163,14 @@ pub struct Generate {
     charset: String,
 
     /// The number of tables to generate.
-    /// A single table has a theorical success rate of 86.5%.
+    /// A single table has a theoritical success rate of 86.5%.
     /// Generating 4 tables allows to increase the success rate to 99.96%.
     #[clap(short = 'n', long, value_parser = value_parser!(u8).range(1..), default_value_t = 4)]
     table_count: u8,
 
     /// Start the generation from this table number.
     /// Useful to generate tables in several times, or on multiple computers.
-    /// Note that tables are 1-indexed.
-    #[clap(short = 'f', long, value_parser = value_parser!(u8).range(1..), default_value_t = 1)]
+    #[clap(short = 'f', long, value_parser = value_parser!(u8).range(0..), default_value_t = 0)]
     start_from: u8,
 
     /// Optimize the storage of the rainbow table(s) using compressed delta encoding.

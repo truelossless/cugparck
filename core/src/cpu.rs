@@ -9,7 +9,7 @@ pub type Digest = Vec<u8>;
 /// Reduces a digest into a password.
 // Notice how we multiply the table number with the iteration instead of just adding it.
 // This allows the reduce functions to be very different from one table to another.
-// On 4 tables, it bumps the success rate from 96.5% to 99.9% (way closer to the theorical bound).
+// On 4 tables, it bumps the success rate from 96.5% to 99.9% (way closer to the theoritical bound).
 #[inline]
 pub fn reduce(digest: &Digest, iteration: u64, ctx: &RainbowTableCtx) -> CompressedPassword {
     // we can use the 8 first bytes of the digest as the seed, since it is pseudo-random.
