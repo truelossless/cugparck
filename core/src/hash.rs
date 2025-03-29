@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use cubecl::prelude::*;
 use digest::{Digest as _, DynDigest};
 use md4::Md4;
@@ -30,5 +32,11 @@ impl HashFunction {
             Self::Ntlm => Box::new(Ntlm::new()),
             _ => todo!("Reimplement all hash functions"),
         }
+    }
+}
+
+impl Display for HashFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
     }
 }

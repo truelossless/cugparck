@@ -5,24 +5,31 @@ use cugparck_core::{
     RainbowTableCtx, RainbowTableCtxBuilder, SimpleTable, SimpleTableHandle, Vulkan, WebGpu,
     WgpuRuntime, DEFAULT_FILTER_COUNT,
 };
+use human_repr::HumanDuration;
 use ratatui::{
     buffer::Buffer,
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Style, Stylize},
     symbols,
     text::Line,
-    widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph, Tabs, Widget},
+    widgets::{Axis, Block, Chart, Dataset, Gauge, GraphType, LineGauge, List, Tabs, Widget},
     DefaultTerminal, Frame,
 };
-use std::{iter, time::Duration};
+use std::{
+    iter,
+    time::{Duration, Instant},
+};
 
 use crate::{create_dir_to_store_tables, AvailableBackend, Generate};
 
 struct TableStats {
     ctx: RainbowTableCtx,
-    mi_reference: Vec<(f64, f64)>,
+    progress: f64,
     unique_chains: u64,
+    mi_reference: Vec<(f64, f64)>,
     filtration_stats: Vec<(f64, f64)>,
+    start_time: Option<Instant>,
+    end_time: Option<Instant>,
 }
 
 impl TableStats {
@@ -31,18 +38,52 @@ impl TableStats {
     fn register_filtration_step(&mut self, chain_pos: u64, unique_chains_count: usize) {
         self.unique_chains = unique_chains_count as u64;
 
+        // push the filtration step twice so it's correctly renderered as chunks and no
+        // interpolation is done
         if let Some((_, last_unique_chains)) = self.filtration_stats.last() {
             self.filtration_stats
                 .push((chain_pos as f64, *last_unique_chains));
         }
 
-        // push it twice so the data is correctly renderered as chunks and no extrapolation is done
         self.filtration_stats
             .push((chain_pos as f64, unique_chains_count as f64));
     }
 }
 
 impl TableStats {
+    fn render_overview(&self, area: Rect, buf: &mut Buffer) {
+        let [progress, stats] =
+            Layout::vertical([Constraint::Length(3), Constraint::Fill(1)]).areas(area);
+
+        LineGauge::default()
+            .block(Block::bordered().title("Progress"))
+            .filled_style(Style::new().blue().bold())
+            .line_set(symbols::line::THICK)
+            .ratio(self.progress)
+            .render(progress, buf);
+
+        let duration = match self.start_time {
+            None => String::new(),
+            Some(start) if start.elapsed() < Duration::from_secs(1) => String::new(),
+            Some(start) => (self
+                .end_time
+                .unwrap_or_else(Instant::now)
+                .duration_since(start))
+            .as_secs()
+            .human_duration()
+            .to_string(),
+        };
+
+        List::new([
+            format!("{:<30} {}", "Unique chains", self.unique_chains),
+            format!("{:<30} {}", "Duration ", duration),
+        ])
+        .block(Block::bordered().title("Stats"))
+        .style(Style::new().white())
+        .highlight_style(Style::new().italic())
+        .render(stats, buf);
+    }
+
     fn render_filtration(&self, area: Rect, buf: &mut Buffer) {
         let expected_dataset = Dataset::default()
             .name("Expected number of unique chains")
@@ -90,7 +131,11 @@ impl Widget for &TableStats {
     where
         Self: Sized,
     {
-        self.render_filtration(area, buf);
+        let [overview, filtration] =
+            Layout::vertical([Constraint::Length(7), Constraint::Fill(1)]).areas(area);
+
+        self.render_overview(overview, buf);
+        self.render_filtration(filtration, buf);
     }
 }
 
@@ -138,14 +183,18 @@ impl GenerateWidget {
 
             self.table_stats.push(TableStats {
                 mi_reference,
+                progress: 0.,
                 unique_chains: ctx.m0,
                 ctx,
                 filtration_stats: Vec::new(),
+                start_time: None,
+                end_time: None,
             });
         }
 
         // loop until all tables are generated
         'main: for i in 0..self.args.table_count {
+            self.table_stats[i as usize].start_time = Some(Instant::now());
             let ctx = self.table_stats[i as usize].ctx.clone();
 
             let table_handle = match self.args.backend {
@@ -163,6 +212,8 @@ impl GenerateWidget {
                 self.handle_user_events()?;
                 self.handle_generation_events(&table_handle, i)?;
             }
+
+            self.table_stats[i as usize].end_time = Some(Instant::now());
 
             let simple_table = table_handle.handle.join().unwrap()?;
             let table_path = self.args.dir.clone().join(format!("table_{i}.{ext}"));
@@ -200,6 +251,12 @@ impl GenerateWidget {
             // pb.finish_with_message("Done");
         }
 
+        // do not exit the TUI when the generation is finished
+        while !self.exit {
+            terminal.draw(|frame| self.draw(frame))?;
+            self.handle_user_events()?;
+        }
+
         Ok(())
     }
 
@@ -221,6 +278,11 @@ impl GenerateWidget {
                     self.table_stats[current_table as usize]
                         .register_filtration_step(col_start, unique_chains);
                 }
+
+                Event::Progress(progress) => {
+                    self.table_stats[current_table as usize].progress = progress;
+                }
+
                 _ => (),
             }
         }
@@ -264,6 +326,46 @@ impl GenerateWidget {
 
         Ok(())
     }
+
+    fn render_dashboard(&self, area: Rect, buf: &mut Buffer) {
+        let [infos, progress] =
+            Layout::vertical([Constraint::Fill(1), Constraint::Length(3)]).areas(area);
+
+        let ctx = self.ctx_builder.clone().build().unwrap();
+        List::new([
+            format!("{:<30} {}", "Hash function", ctx.hash_function),
+            format!(
+                "{:<30} {}",
+                "Charset",
+                String::from_utf8_lossy(&ctx.charset)
+            ),
+            format!("{:<30} {}", "Chain length (t)", ctx.t),
+            format!("{:<30} {}", "Starting chains (m0)", ctx.m0),
+            format!("{:<30} {}", "Search space size (n)", ctx.n),
+            format!(
+                "{:<30} {}-{}",
+                "Tables to generate",
+                self.args.start_from,
+                self.args.start_from + self.args.table_count - 1
+            ),
+        ])
+        .block(Block::bordered().title("Informations"))
+        .style(Style::new().white())
+        .highlight_style(Style::new().italic())
+        .render(infos, buf);
+
+        Gauge::default()
+            .block(Block::bordered().title("Progress"))
+            .gauge_style(Style::new().blue())
+            .ratio(
+                self.table_stats
+                    .iter()
+                    .map(|table| table.progress)
+                    .sum::<f64>()
+                    / 4.,
+            )
+            .render(progress, buf);
+    }
 }
 
 impl Widget for &GenerateWidget {
@@ -273,9 +375,9 @@ impl Widget for &GenerateWidget {
             Constraint::Min(0),
             Constraint::Length(1),
         ]);
-        let [header_area, inner_area, _footer_area] = vertical.areas(area);
+        let [header, inner, footer] = vertical.areas(area);
         let horizontal = Layout::horizontal([Constraint::Min(0), Constraint::Length(20)]);
-        let [tabs_area, _title_area] = horizontal.areas(header_area);
+        let [tabs, title] = horizontal.areas(header);
 
         let tab_names = iter::once("Dashboard".to_owned()).chain(
             (self.args.start_from..self.args.start_from + self.args.table_count)
@@ -289,20 +391,29 @@ impl Widget for &GenerateWidget {
             })
             .padding("", "")
             .divider(" ")
-            .render(tabs_area, buf);
+            .render(tabs, buf);
+
+        Line::from(vec!["Cugparck".into()]).render(title, buf);
 
         match self.current_tab {
             Tab::Dashboard => {
-                Paragraph::new("Dashboard")
-                    .style(Style::default().fg(Color::Yellow))
-                    .alignment(Alignment::Center)
-                    .render(inner_area, buf);
+                self.render_dashboard(inner, buf);
             }
             Tab::Table(i) => {
                 let table = &self.table_stats[i as usize - self.args.start_from as usize];
-                table.render(inner_area, buf);
+                table.render(inner, buf);
             }
         }
+
+        Line::from(vec![
+            " Page Left ".into(),
+            "<Left>".blue().bold(),
+            " Page Right ".into(),
+            "<Right>".blue().bold(),
+            " Quit ".into(),
+            "<Q> ".blue().bold(),
+        ])
+        .render(footer, buf);
     }
 }
 

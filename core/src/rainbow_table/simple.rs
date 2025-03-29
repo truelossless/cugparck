@@ -100,7 +100,9 @@ impl SimpleTable {
 
             let mut current_chains_iter = current_chains.into_iter();
             let batch_iter = BatchIterator::new(current_chains.len()).enumerate();
+
             let batch_count = batch_iter.len() as u64;
+            let mut batch_finished = 0;
 
             for (batch_number, batch_info) in batch_iter {
                 // wait for a producer. This will block until one is available.
@@ -178,11 +180,12 @@ impl SimpleTable {
                         });
                     }
 
+                    batch_finished += 1;
                     if let Some(events) = &events {
-                        let batch_percent = batch_number as f64 / batch_count as f64;
+                        let batch_percent = batch_finished as f64 / batch_count as f64;
                         let current_col_progress = columns.len() as f64 * batch_percent;
                         let col_progress = columns.start as f64;
-                        let progress = (col_progress + current_col_progress) / ctx.t as f64 * 100.;
+                        let progress = (col_progress + current_col_progress) / ctx.t as f64;
 
                         events.send(Event::Progress(progress)).unwrap();
                     }
