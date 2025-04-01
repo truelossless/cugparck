@@ -4,11 +4,13 @@ use std::{
         mpsc::{channel, Sender},
         Arc, Mutex,
     },
-    thread,
+    thread::{self, sleep},
+    time::Duration,
 };
 
 use cubecl::prelude::*;
 use serde::{Deserialize, Serialize};
+use tracing::{debug, trace};
 
 use super::{RainbowChain, RainbowTable};
 use crate::{
@@ -16,10 +18,11 @@ use crate::{
     ctx::RainbowTableCtx,
     cube::compute::chains_kernel,
     error::CugparckResult,
-    event::{Event, SimpleTableHandle},
+    event::{BatchStatus, Event, SimpleTableHandle},
+    producer::Producer,
     rainbow_chain_map::{RainbowChainMap, RainbowChainMapIterator},
     scheduling::{BatchIterator, FiltrationIterator},
-    CompressedPassword,
+    CompressedPassword, PRODUCER_COUNT,
 };
 
 /// A simple rainbow table.
@@ -45,58 +48,52 @@ impl SimpleTable {
         }
     }
 
+    /// Creates a new simple rainbow table.
+    pub fn new<Backend: Runtime>(ctx: RainbowTableCtx) -> CugparckResult<Self> {
+        let (sender, _) = channel();
+        Self::new_impl::<Backend>(ctx, sender)
+    }
+
     /// Creates a new simple rainbow table, asynchronously.
     /// Returns an handle to get events related to the generation and to get the generated table.
     pub fn new_with_events<Backend: Runtime>(
         ctx: RainbowTableCtx,
     ) -> CugparckResult<SimpleTableHandle> {
         let (sender, receiver) = channel();
-        let handle = thread::spawn(|| Self::new_impl::<Backend>(ctx, Some(sender)));
+        let handle = thread::spawn(|| Self::new_impl::<Backend>(ctx, sender));
 
         Ok(SimpleTableHandle { handle, receiver })
     }
 
-    /// Creates a new simple rainbow table.
-    pub fn new<Backend: Runtime>(ctx: RainbowTableCtx) -> CugparckResult<Self> {
-        Self::new_impl::<Backend>(ctx, None)
-    }
-
+    /// Actual implementation of the rainbow table generation.
     fn new_impl<Backend: Runtime>(
         ctx: RainbowTableCtx,
-        events: Option<Sender<Event>>,
+        events: Sender<Event>,
     ) -> CugparckResult<Self> {
         // create multiple producers.
         // each producer is a client with its own stream, so we can maximize the GPU usage and reduce data transfer overhead.
         // See: https://developer.download.nvidia.com/CUDA/training/StreamsAndConcurrencyWebinar.pdf
-        const PRODUCER_COUNT: usize = 4;
         let (producer_sender, producer_receiver) = channel();
 
         let mut current_chains = RainbowChainMap::new(ctx.m0)?;
         let next_chains = Arc::new(Mutex::new(RainbowChainMap::with_startpoints(ctx.m0)?));
 
-        let mut producers = Vec::with_capacity(PRODUCER_COUNT);
-        for _ in 0..PRODUCER_COUNT {
-            producers.push(Backend::client(&Default::default()));
+        let mut producers: Vec<Producer<Backend>> = Vec::with_capacity(PRODUCER_COUNT);
+        for i in 0..PRODUCER_COUNT {
+            producers.push(Producer::new(i as u8));
         }
 
         for columns in FiltrationIterator::new(ctx.clone()) {
+            debug!("New computation step between columns {columns:?}");
             // make available all producers
-            for producer in &producers {
-                producer_sender.send(producer.clone()).unwrap();
+            for producer in producers.drain(..) {
+                producer_sender.send(producer).unwrap();
             }
+            trace!("All producers made available");
 
             // make the next chains the current chains, and empty next chains
             mem::swap(&mut current_chains, &mut *next_chains.lock().unwrap());
             next_chains.lock().unwrap().clear();
-
-            if let Some(events) = &events {
-                events
-                    .send(Event::FiltrationStep {
-                        col_start: columns.start as u64,
-                        unique_chains: current_chains.len(),
-                    })
-                    .unwrap();
-            }
 
             let mut current_chains_iter = current_chains.into_iter();
             let batch_iter = BatchIterator::new(current_chains.len()).enumerate();
@@ -104,22 +101,24 @@ impl SimpleTable {
             let batch_count = batch_iter.len() as u64;
             let mut batch_finished = 0;
 
+            events
+                .send(Event::ComputationStepStarted {
+                    columns: columns.clone(),
+                    batch_count,
+                })
+                .unwrap();
+
             for (batch_number, batch_info) in batch_iter {
                 // wait for a producer. This will block until one is available.
                 let producer = producer_receiver.recv().unwrap();
 
-                let events = events.clone();
-                let columns = columns.clone();
-
-                if let Some(sender) = &events {
-                    sender
-                        .send(Event::Batch {
-                            batch_number: batch_number as u64 + 1,
-                            batch_count,
-                            columns: columns.clone(),
-                        })
-                        .unwrap();
-                }
+                events
+                    .send(Event::Batch {
+                        number: batch_number as u64,
+                        producer: producer.number,
+                        status: BatchStatus::CopyHostToDevice,
+                    })
+                    .unwrap();
 
                 let (batch_midpoints, batch_startpoints): (
                     Vec<CompressedPassword>,
@@ -130,10 +129,21 @@ impl SimpleTable {
                     .unzip();
 
                 let ctx = ctx.clone();
+                let columns = columns.clone();
                 let next_chains_borrow = next_chains.clone();
                 let producer_sender = producer_sender.clone();
+                let events = events.clone();
                 thread::spawn(move || {
-                    let batch_handle = producer.create(u64::as_bytes(&batch_midpoints));
+                    trace!("Producer {} started", producer.number);
+                    events
+                        .send(Event::Batch {
+                            number: batch_number as u64,
+                            producer: producer.number,
+                            status: BatchStatus::ComputationStarted,
+                        })
+                        .unwrap();
+
+                    let batch_handle = producer.client.create(u64::as_bytes(&batch_midpoints));
 
                     // run the kernel
                     unsafe {
@@ -142,12 +152,12 @@ impl SimpleTable {
                             batch_midpoints.len(),
                             1,
                         );
-                        let charset_handle = producer.create(u8::as_bytes(&ctx.charset));
+                        let charset_handle = producer.client.create(u8::as_bytes(&ctx.charset));
                         let charset_arg =
                             ArrayArg::from_raw_parts::<u8>(&charset_handle, ctx.charset.len(), 1);
 
                         let search_spaces_handle =
-                            producer.create(u64::as_bytes(&ctx.search_spaces));
+                            producer.client.create(u64::as_bytes(&ctx.search_spaces));
                         let search_spaces_arg = ArrayArg::from_raw_parts::<u64>(
                             &search_spaces_handle,
                             ctx.search_spaces.len(),
@@ -158,7 +168,7 @@ impl SimpleTable {
                             ctx.to_comptime_runtime(charset_arg, search_spaces_arg);
 
                         chains_kernel::launch_unchecked::<Backend>(
-                            &producer,
+                            &producer.client,
                             CubeCount::Static(batch_info.block_count, 1, 1),
                             CubeDim::new(batch_info.thread_count, 1, 1),
                             batch_arg,
@@ -169,8 +179,34 @@ impl SimpleTable {
                         );
                     }
 
-                    let batch_output = producer.read_one(batch_handle.binding());
+                    // update table generation progress
+                    batch_finished += 1;
+                    let batch_percent = batch_finished as f64 / batch_count as f64;
+                    let current_col_progress = columns.len() as f64 * batch_percent;
+                    let col_progress = columns.start as f64;
+                    let overall_progress = (col_progress + current_col_progress) / ctx.t as f64;
+                    events.send(Event::Progress(overall_progress)).unwrap();
+
+                    // copy back results to host
+                    events
+                        .send(Event::Batch {
+                            number: batch_number as u64,
+                            producer: producer.number,
+                            status: BatchStatus::CopyDeviceToHost,
+                        })
+                        .unwrap();
+
+                    let batch_output = producer.client.read_one(batch_handle.binding());
                     let batch_midpoints = CompressedPassword::from_bytes(&batch_output);
+
+                    // filtrate results
+                    events
+                        .send(Event::Batch {
+                            number: batch_number as u64,
+                            producer: producer.number,
+                            status: BatchStatus::FiltrationStarted,
+                        })
+                        .unwrap();
 
                     let mut next_chains = next_chains_borrow.lock().unwrap();
                     for (&startpoint, &midpoint) in batch_startpoints.iter().zip(batch_midpoints) {
@@ -180,39 +216,37 @@ impl SimpleTable {
                         });
                     }
 
-                    batch_finished += 1;
-                    if let Some(events) = &events {
-                        let batch_percent = batch_finished as f64 / batch_count as f64;
-                        let current_col_progress = columns.len() as f64 * batch_percent;
-                        let col_progress = columns.start as f64;
-                        let progress = (col_progress + current_col_progress) / ctx.t as f64;
-
-                        events.send(Event::Progress(progress)).unwrap();
-                    }
+                    events
+                        .send(Event::Batch {
+                            number: batch_number as u64,
+                            producer: producer.number,
+                            status: BatchStatus::FiltrationFinished,
+                        })
+                        .unwrap();
 
                     // release this producer
                     drop(next_chains);
                     drop(next_chains_borrow);
+                    trace!("Producer {} finished", producer.number);
                     producer_sender.send(producer).unwrap();
                 });
             }
 
             // wait for all producers to finish before starting next batches
+            trace!("All batches dispatched, waiting for all producers");
             for _ in 0..PRODUCER_COUNT {
-                producer_receiver.recv().unwrap();
+                producers.push(producer_receiver.recv().unwrap());
             }
-        }
+            trace!("All producers finished");
 
-        let chains = Arc::into_inner(next_chains).unwrap().into_inner().unwrap();
-        if let Some(events) = &events {
             events
-                .send(Event::FiltrationStep {
-                    col_start: ctx.t,
-                    unique_chains: chains.len(),
+                .send(Event::ComputationStepFinished {
+                    unique_chains: next_chains.lock().unwrap().len() as u64,
                 })
                 .unwrap();
         }
 
+        let chains = Arc::into_inner(next_chains).unwrap().into_inner().unwrap();
         Ok(Self { chains, ctx })
     }
 }

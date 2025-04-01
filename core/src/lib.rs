@@ -4,6 +4,7 @@ mod cube;
 mod error;
 mod event;
 mod hash;
+mod producer;
 mod rainbow_chain_map;
 mod rainbow_table;
 mod scheduling;
@@ -14,7 +15,7 @@ pub use {
     cpu::{Digest, Password},
     ctx::{RainbowTableCtx, RainbowTableCtxBuilder},
     cubecl::{cuda::CudaRuntime, wgpu::WgpuRuntime},
-    event::{Event, SimpleTableHandle},
+    event::{BatchStatus, Event, SimpleTableHandle},
     hash::HashFunction,
     rainbow_table::{ClusterTable, CompressedTable, RainbowTable, SimpleTable},
 };
@@ -35,6 +36,9 @@ pub const DEFAULT_MAX_PASSWORD_LENGTH: u8 = 6;
 /// The default charset.
 pub const DEFAULT_CHARSET: &[u8] =
     b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_";
+///
+/// The number of producers used to interleave memory copies.
+pub const PRODUCER_COUNT: usize = 4;
 
 /// The default table number.
 const DEFAULT_TABLE_NUMBER: u8 = 0;

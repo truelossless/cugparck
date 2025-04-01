@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use crossterm::event::{self, KeyCode, KeyEventKind};
 use cugparck_core::{
-    init_setup, CompressedTable, CudaRuntime, Dx12, Event, Metal, OpenGl, RainbowTable,
-    RainbowTableCtx, RainbowTableCtxBuilder, SimpleTable, SimpleTableHandle, Vulkan, WebGpu,
-    WgpuRuntime, DEFAULT_FILTER_COUNT,
+    init_setup, BatchStatus, CompressedTable, CudaRuntime, Dx12, Event, Metal, OpenGl,
+    RainbowTable, RainbowTableCtx, RainbowTableCtxBuilder, SimpleTable, SimpleTableHandle, Vulkan,
+    WebGpu, WgpuRuntime, DEFAULT_FILTER_COUNT, PRODUCER_COUNT,
 };
 use human_repr::HumanDuration;
 use ratatui::{
@@ -16,9 +16,12 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 use std::{
+    fmt::Display,
     iter,
+    ops::Range,
     time::{Duration, Instant},
 };
+use tui_logger::{LevelFilter, TuiLoggerWidget};
 
 use crate::{create_dir_to_store_tables, AvailableBackend, Generate};
 
@@ -35,8 +38,8 @@ struct TableStats {
 impl TableStats {
     /// Registers a new filtration step in the stats.
     /// That is, a (chain_pos, unique_chains_count) pair.
-    fn register_filtration_step(&mut self, chain_pos: u64, unique_chains_count: usize) {
-        self.unique_chains = unique_chains_count as u64;
+    fn register_computation_step(&mut self, chain_pos: usize, unique_chains_count: u64) {
+        self.unique_chains = unique_chains_count;
 
         // push the filtration step twice so it's correctly renderered as chunks and no
         // interpolation is done
@@ -79,8 +82,6 @@ impl TableStats {
             format!("{:<30} {}", "Duration ", duration),
         ])
         .block(Block::bordered().title("Stats"))
-        .style(Style::new().white())
-        .highlight_style(Style::new().italic())
         .render(stats, buf);
     }
 
@@ -146,10 +147,45 @@ enum Tab {
     Table(u8),
 }
 
+#[derive(Default, Clone, Copy)]
+enum ProducerState {
+    #[default]
+    Idle,
+    WaitingForDevice(u64),
+    HostToDeviceCopy(u64),
+    DeviceToHostCopy(u64),
+    Filtrating(u64),
+}
+
+impl Display for ProducerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Idle => write!(f, "idle"),
+            Self::WaitingForDevice(batch) => write!(f, "waiting for batch {batch}"),
+            Self::HostToDeviceCopy(batch) => write!(f, "copying batch {batch} to device"),
+            Self::DeviceToHostCopy(batch) => {
+                write!(f, "copying batch {batch} results to host")
+            }
+            Self::Filtrating(batch) => write!(f, "filtrating batch {batch}"),
+        }
+    }
+}
+
+#[derive(Default)]
+struct GenerateOverview {
+    pub columns: Range<usize>,
+    pub batch_count: u64,
+}
+
+impl GenerateOverview {}
+
 struct GenerateWidget {
     args: Generate,
     current_tab: Tab,
+    generation_finished: bool,
     ctx_builder: RainbowTableCtxBuilder,
+    producers: [ProducerState; PRODUCER_COUNT],
+    overview: GenerateOverview,
     table_stats: Vec<TableStats>,
     exit: bool,
 }
@@ -159,7 +195,10 @@ impl GenerateWidget {
         Ok(Self {
             current_tab: Tab::Table(args.start_from),
             args,
+            generation_finished: false,
             ctx_builder,
+            producers: [ProducerState::default(); PRODUCER_COUNT],
+            overview: GenerateOverview::default(),
             table_stats: Vec::new(),
             exit: false,
         })
@@ -226,30 +265,9 @@ impl GenerateWidget {
             } else {
                 simple_table.store(&table_path).context(disk_error)?;
             }
-
-            // let pb = ProgressBar::new(10_000).with_style(
-            //     ProgressStyle::default_bar()
-            //         .template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.cyan/blue}]")
-            //         .unwrap()
-            //         .progress_chars("#>-"),
-            // );
-            // pb.enable_steady_tick(Duration::from_millis(100));
-
-            // while let Some(event) = table_handle.recv() {
-            //     match event {
-            //         Event::Progress(progress) => pb.set_position((progress * 100.) as u64),
-            //         Event::Batch {
-            //             batch_number,
-            //             batch_count,
-            //             columns,
-            //         } => pb.set_message(format!(
-            //             "Running batch {batch_number}/{batch_count} of columns {columns:?}"
-            //         )),
-            //     }
-            // }
-
-            // pb.finish_with_message("Done");
         }
+
+        self.generation_finished = true;
 
         // do not exit the TUI when the generation is finished
         while !self.exit {
@@ -271,19 +289,52 @@ impl GenerateWidget {
     ) -> Result<()> {
         while let Ok(event) = table_handle.receiver.try_recv() {
             match event {
-                Event::FiltrationStep {
-                    col_start,
-                    unique_chains,
+                Event::ComputationStepStarted {
+                    columns,
+                    batch_count,
                 } => {
+                    self.overview.batch_count = batch_count;
+                    self.overview.columns = columns;
+                }
+
+                Event::ComputationStepFinished { unique_chains } => {
                     self.table_stats[current_table as usize]
-                        .register_filtration_step(col_start, unique_chains);
+                        .register_computation_step(self.overview.columns.start, unique_chains);
                 }
 
                 Event::Progress(progress) => {
-                    self.table_stats[current_table as usize].progress = progress;
+                    self.table_stats[current_table as usize].progress = progress
                 }
 
-                _ => (),
+                Event::Batch {
+                    number,
+                    producer,
+                    status: BatchStatus::CopyHostToDevice,
+                } => self.producers[producer as usize] = ProducerState::HostToDeviceCopy(number),
+
+                Event::Batch {
+                    number,
+                    producer,
+                    status: BatchStatus::ComputationStarted,
+                } => self.producers[producer as usize] = ProducerState::WaitingForDevice(number),
+
+                Event::Batch {
+                    number,
+                    producer,
+                    status: BatchStatus::CopyDeviceToHost,
+                } => self.producers[producer as usize] = ProducerState::DeviceToHostCopy(number),
+
+                Event::Batch {
+                    number,
+                    producer,
+                    status: BatchStatus::FiltrationStarted,
+                } => self.producers[producer as usize] = ProducerState::Filtrating(number),
+
+                Event::Batch {
+                    producer,
+                    status: BatchStatus::FiltrationFinished,
+                    ..
+                } => self.producers[producer as usize] = ProducerState::Idle,
             }
         }
 
@@ -328,8 +379,35 @@ impl GenerateWidget {
     }
 
     fn render_dashboard(&self, area: Rect, buf: &mut Buffer) {
-        let [infos, progress] =
-            Layout::vertical([Constraint::Fill(1), Constraint::Length(3)]).areas(area);
+        let [progress, inner] =
+            Layout::vertical([Constraint::Length(3), Constraint::Fill(1)]).areas(area);
+
+        let [infos, logs] =
+            Layout::horizontal([Constraint::Length(80), Constraint::Fill(1)]).areas(inner);
+
+        TuiLoggerWidget::default()
+            .block(Block::bordered().title("Logs"))
+            .output_separator(' ')
+            .output_file(false)
+            .output_line(false)
+            .style_trace(Style::default().fg(Color::DarkGray))
+            .style_debug(Style::default().fg(Color::Green))
+            .style_info(Style::default().fg(Color::Blue))
+            .style_warn(Style::default().fg(Color::Yellow))
+            .style_error(Style::default().fg(Color::Red))
+            .render(logs, buf);
+
+        let [producers, misc] =
+            Layout::vertical([Constraint::Length(6), Constraint::Length(8)]).areas(infos);
+
+        List::new(
+            self.producers
+                .iter()
+                .enumerate()
+                .map(|(i, state)| format!("Producer {:<30} {}", i, state)),
+        )
+        .block(Block::bordered().title("Producers"))
+        .render(producers, buf);
 
         let ctx = self.ctx_builder.clone().build().unwrap();
         List::new([
@@ -350,9 +428,7 @@ impl GenerateWidget {
             ),
         ])
         .block(Block::bordered().title("Informations"))
-        .style(Style::new().white())
-        .highlight_style(Style::new().italic())
-        .render(infos, buf);
+        .render(misc, buf);
 
         Gauge::default()
             .block(Block::bordered().title("Progress"))
@@ -418,6 +494,8 @@ impl Widget for &GenerateWidget {
 }
 
 pub fn generate(args: Generate) -> Result<()> {
+    tui_logger::init_logger(LevelFilter::Trace).unwrap();
+
     let ctx_builder = RainbowTableCtxBuilder::new()
         .hash(args.hash_function.into())
         .alpha(args.alpha)

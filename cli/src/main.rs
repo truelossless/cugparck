@@ -13,7 +13,6 @@ use std::{
 use anyhow::{ensure, Context, Ok, Result};
 
 use clap::{value_parser, Args, Parser, Subcommand, ValueEnum};
-use crossterm::style::{style, Color, Stylize};
 
 use attack::attack;
 use compress::compress;
@@ -23,6 +22,9 @@ use cugparck_core::{
 };
 use decompress::decompress;
 use generate::generate;
+use tracing::{error, level_filters::LevelFilter};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tui_logger::TuiTracingSubscriberLayer;
 // use stealdows::stealdows;
 
 /// All the hash types supported.
@@ -81,6 +83,10 @@ pub enum AvailableBackend {
 struct Cli {
     #[clap(subcommand)]
     commands: Commands,
+
+    /// The logging level.
+    #[arg(long, value_enum, default_value = "info", global = true)]
+    log_level: LevelFilter,
 }
 
 #[derive(Subcommand)]
@@ -257,15 +263,21 @@ fn check_hex(hex: &str) -> Result<String> {
 }
 
 fn main() {
-    if let Err(err) = try_main() {
-        eprintln!("{}", style(format!("{:?}", err)).with(Color::Red));
+    let cli = Cli::parse();
+
+    tracing_subscriber::registry()
+        .with(TuiTracingSubscriberLayer)
+        .with(cli.log_level)
+        .init();
+
+    if let Err(err) = try_main(cli) {
+        error!("{:?}", err);
+        eprintln!("{:?}", err);
         std::process::exit(1);
     }
 }
 
-fn try_main() -> Result<()> {
-    let cli = Cli::parse();
-
+fn try_main(cli: Cli) -> Result<()> {
     match cli.commands {
         Commands::Attack(args) => attack(args)?,
         Commands::Generate(args) => generate(args)?,
