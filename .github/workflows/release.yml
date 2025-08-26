@@ -1,107 +1,95 @@
-on:
-  push:
-    tags:
-      - "*"
-
 name: Release
 
+on:
+  push:
+    tags: ["v*.*.*"]
+    paths-ignore:
+      - "**.md"
+
+env:
+  CUDA_VERSION: "12.1.1"
+  BINARY_NAME: cugparck-cli
+
 jobs:
-  build:
+  build_release_binaries:
+    name: Build release binary (${{ matrix.target }})
     strategy:
       matrix:
         include:
-          - os: ubuntu-20.04
-            target: linux
-            ext: ""
+          - os: ubuntu-latest
+            target: linux-x86_64
+            asset_name_suffix: ""
           - os: windows-latest
-            target: windows
-            ext: .exe
-    name: ${{ matrix.target }} release
+            target: windows-x86_64
+            asset_name_suffix: ".exe"
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Clone repository
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Install CUDA
-        uses: Jimver/cuda-toolkit@v0.2.8
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          cuda: "11.2.2"
+          toolchain: stable
 
-      - name: Populate env
-        if: contains(matrix.os, 'ubuntu')
-        run: |
-          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CUDA_PATH/compat:$CUDA_PATH/nvvm/lib64" >> $GITHUB_ENV
-          echo "LLVM_LINK_SHARED=1" >> $GITHUB_ENV
-
-      - name: Install LLVM 7
-        if: contains(matrix.os, 'ubuntu')
-        run: |
-          sudo apt-get install llvm-7
-          sudo ln -s /usr/bin/llvm-config-7 /usr/local/bin/llvm-config
-
-      - name: Install Rust-CUDA toolchain
-        uses: actions-rs/toolchain@v1
+      - name: Install CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.24
+        id: cuda-toolkit
         with:
-          toolchain: nightly-2021-12-04
-          components: rust-src, rustc-dev, llvm-tools-preview
+          cuda: ${{ env.CUDA_VERSION }}
 
-      - name: Install nightly toolchain
-        uses: actions-rs/toolchain@v1
+      - name: Cache Cargo dependencies for release build
+        uses: actions/cache@v4
         with:
-          toolchain: nightly
-          default: true
-
-      - name: Load Rust cache
-        uses: Swatinem/rust-cache@v1
-
-      - name: Build executable with CUDA support
-        run: |
-          cargo build --release --features cuda
-          cp target/release/cugparck-cli${{ matrix.ext }} cugparck-cli-${{ matrix.target }}-cuda${{ matrix.ext }}
-
-      - name: Build executable without CUDA support
-        run: |
-          cargo build --release
-          cp target/release/cugparck-cli${{ matrix.ext }} cugparck-cli-${{ matrix.target }}${{ matrix.ext }}
-
-      - name: Run tests
-        run: cargo test --release --no-fail-fast
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: cug-${{ matrix.target }}
           path: |
-            cugparck-cli-${{ matrix.target }}-cuda${{ matrix.ext }}
-            cugparck-cli-${{ matrix.target }}${{ matrix.ext }}
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
-  upload:
-    needs: build
+      - name: Build release binary
+        run: cargo build --release --verbose
+
+      - name: Prepare release artifact
+        shell: bash
+        run: |
+          ASSET_NAME="${{ env.BINARY_NAME }}-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.asset_name_suffix }}"
+          mv "target/release/${{ env.BINARY_NAME }}${{ matrix.asset_name_suffix }}" "$ASSET_NAME"
+          echo "ASSET_PATH=$ASSET_NAME" >> $GITHUB_ENV
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET_PATH }}
+          path: ${{ env.ASSET_PATH }}
+
+  publish_release:
+    name: Publish GitHub release
+    needs: build_release_binaries
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
-      - name: Clone repository
-        uses: actions/checkout@v3
-
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v3
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
         with:
-          name: cug-windows
+          path: release-artifacts
 
-      - name: Download Linux artifacts
-        uses: actions/download-artifact@v3
+      - name: Update changelog
+        id: changelog
+        uses: requarks/changelog-action@v1.10.2
         with:
-          name: cug-linux
+          token: ${{ github.token }}
+          tag: ${{ github.ref_name }}
+          writeToFile: false
 
-      - name: Create release
-        id: create_release
-        uses: softprops/action-gh-release@v1
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2.3.2
         with:
-          body: This is an automated build for Cugparck ${{ github.ref_name }}.
-          draft: false
-          prerelease: true
+          body: ${{ steps.changelog.outputs.changes }}
           files: |
-            cugparck-cli-windows-cuda.exe
-            cugparck-cli-windows.exe
-            cugparck-cli-linux-cuda
-            cugparck-cli-linux
+            release-artifacts/**/cugparck-cli*

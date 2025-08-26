@@ -207,7 +207,7 @@ fn plaintext_to_counter(plaintext: Password, runtime_ctx: &RuntimeGpuCtx) -> Com
 #[cfg(test)]
 mod tests {
     use cubecl::prelude::*;
-    use cubecl_cuda::CudaRuntime;
+    use cubecl_wgpu::WgpuRuntime;
 
     use crate::{
         ctx::build_test_ctx,
@@ -224,12 +224,12 @@ mod tests {
 
     #[test]
     fn test_ascii_to_charset() {
-        let client = CudaRuntime::client(&Default::default());
+        let client = WgpuRuntime::client(&Default::default());
         let c_handle = client.create(b"9_");
         let charset_handle = client.create(DEFAULT_CHARSET);
         let output_handle = client.empty(2);
 
-        test_ascii_to_charset_kernel::launch::<CudaRuntime>(
+        test_ascii_to_charset_kernel::launch::<WgpuRuntime>(
             &client,
             CubeCount::new_1d(2),
             CubeDim::new_single(),
@@ -238,7 +238,7 @@ mod tests {
             unsafe { ArrayArg::from_raw_parts::<u8>(&output_handle, 2, 1) },
         );
 
-        let actual_output = client.read_one(output_handle.binding());
+        let actual_output = client.read_one(output_handle);
         assert_eq!(&[9, 63], actual_output.as_slice());
     }
 
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn test_counter_to_plaintext() {
         let ctx = build_test_ctx();
-        let client = CudaRuntime::client(&Default::default());
+        let client = WgpuRuntime::client(&Default::default());
         let charset_handle = client.create(&ctx.charset);
         let search_spaces_handle = client.create(u64::as_bytes(&ctx.search_spaces));
 
@@ -282,7 +282,7 @@ mod tests {
             );
             let output_handle = client.empty(ctx.max_password_length as usize);
 
-            test_counter_to_plaintext_kernel::launch::<CudaRuntime>(
+            test_counter_to_plaintext_kernel::launch::<WgpuRuntime>(
                 &client,
                 CubeCount::new_1d(1),
                 CubeDim::new_single(),
@@ -293,7 +293,7 @@ mod tests {
             );
 
             client
-                .read_one(output_handle.binding())
+                .read_one(output_handle)
                 .iter()
                 .take_while(|c| **c != 0)
                 .copied()

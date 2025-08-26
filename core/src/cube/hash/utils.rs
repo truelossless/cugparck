@@ -4,7 +4,7 @@ use cubecl::prelude::*;
 macro_rules! test_hash_function {
     ($hash_function:expr, $digest_size:literal, $input:expr, $expected_digest:expr) => {{
         use cubecl::prelude::*;
-        use cubecl_cuda::CudaRuntime;
+        use cubecl_wgpu::WgpuRuntime;
 
         #[cube(launch)]
         fn hash_kernel(
@@ -17,11 +17,11 @@ macro_rules! test_hash_function {
             }
         }
 
-        let client = CudaRuntime::client(&Default::default());
+        let client = WgpuRuntime::client(&Default::default());
         let input_handle = client.create($input.as_bytes());
         let output_handle = client.empty($digest_size);
 
-        hash_kernel::launch::<CudaRuntime>(
+        hash_kernel::launch::<WgpuRuntime>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_single(),
@@ -32,7 +32,7 @@ macro_rules! test_hash_function {
             unsafe { ArrayArg::from_raw_parts::<u8>(&output_handle, $digest_size, 1) },
         );
 
-        let actual_digest = client.read_one(output_handle.binding());
+        let actual_digest = client.read_one(output_handle);
         // print as hex bytes
         println!("{:x?}", actual_digest.as_slice());
         assert_eq!($expected_digest, actual_digest.as_slice());

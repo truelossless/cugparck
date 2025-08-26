@@ -394,7 +394,7 @@ impl Iterator for CompressedTableEndpointIterator<'_> {
 #[cfg(test)]
 mod tests {
     use bitvec::prelude::*;
-    use cubecl_cuda::CudaRuntime;
+    use cubecl_wgpu::WgpuRuntime;
     use itertools::Itertools;
 
     use crate::{
@@ -651,7 +651,7 @@ mod tests {
         let mut hasher = ctx.hash_function.cpu();
         let mut search_hash = vec![0; hasher.output_size()];
 
-        let table: CompressedTable = SimpleTable::new::<CudaRuntime>(ctx)
+        let table: CompressedTable = SimpleTable::new::<WgpuRuntime>(ctx)
             .unwrap()
             .into_rainbow_table();
 
@@ -674,7 +674,7 @@ mod tests {
         let mut hasher = ctx.hash_function.cpu();
         let mut search_hash = vec![0; hasher.output_size()];
 
-        let table: CompressedTable = SimpleTable::new::<CudaRuntime>(ctx.clone())
+        let table: CompressedTable = SimpleTable::new::<WgpuRuntime>(ctx.clone())
             .unwrap()
             .into_rainbow_table();
 

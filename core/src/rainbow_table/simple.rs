@@ -49,7 +49,7 @@ impl SimpleTable {
 
     /// Creates a new simple rainbow table.
     pub fn new<Backend: Runtime>(ctx: RainbowTableCtx) -> CugparckResult<Self> {
-        let (sender, _) = channel();
+        let (sender, _receiver) = channel();
         Self::new_impl::<Backend>(ctx, sender)
     }
 

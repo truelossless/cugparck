@@ -1,76 +1,96 @@
-on:
-  push:
-    paths-ignore:
-      - "**.md"
-    tags-ignore:
-      - "**"
-  pull_request:
-    paths-ignore:
-      - "**.md"
-    branches:
-      - master
-
 name: CI
 
+on:
+  push:
+    branches: ["master"]
+    paths-ignore:
+      - "**.md"
+  pull_request:
+    branches: ["master"]
+    paths-ignore:
+      - "**.md"
+
+env:
+  CUDA_VERSION: "12.1.1"
+  SWIFTSHADER_DIR: ${{ github.workspace }}/swiftshader-build
+
 jobs:
-  test:
+  build_and_test:
+    name: Build (${{ matrix.os }})
     strategy:
       matrix:
-        include:
-          - os: ubuntu-20.04
-            target: linux
-            ext: ""
-          - os: windows-latest
-            target: windows
-            ext: .exe
-    name: ${{ matrix.target }} ci
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Clone repository
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Install CUDA
-        uses: Jimver/cuda-toolkit@v0.2.8
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
         with:
-          cuda: "11.2.2"
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
-      - name: Populate env
-        if: contains(matrix.os, 'ubuntu')
-        run: |
-          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CUDA_PATH/compat:$CUDA_PATH/nvvm/lib64" >> $GITHUB_ENV
-          echo "LLVM_LINK_SHARED=1" >> $GITHUB_ENV
-
-      - name: Install LLVM 7
-        if: contains(matrix.os, 'ubuntu')
-        run: |
-          sudo apt-get install llvm-7
-          sudo ln -s /usr/bin/llvm-config-7 /usr/local/bin/llvm-config
-
-      - name: Install Rust-CUDA toolchain
-        uses: actions-rs/toolchain@v1
+      - name: Install CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.24
+        id: cuda-toolkit
         with:
-          toolchain: nightly-2021-12-04
-          components: rust-src, rustc-dev, llvm-tools-preview
+          cuda: ${{ env.CUDA_VERSION }}
 
-      - name: Install nightly toolchain
-        uses: actions-rs/toolchain@v1
+      - name: Build project in release mode
+        run: cargo build --release --verbose
+
+      - name: Cache SwiftShader build
+        id: cache-swiftshader
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
         with:
-          toolchain: nightly
-          default: true
+          path: ${{ env.SWIFTSHADER_DIR }}
+          key: ${{ runner.os }}-swiftshader-v1
 
-      - name: Load rust Cache
-        uses: Swatinem/rust-cache@v1
-
-      - name: Build executable with CUDA support
+      - name: Build SwiftShader from source if not cached (Linux only)
+        if: steps.cache-swiftshader.outputs.cache-hit != 'true' && runner.os == 'Linux'
+        shell: bash
         run: |
-          cargo build --release --features cuda
-          cp target/release/cugparck-cli${{ matrix.ext }} cugparck-cli-${{ matrix.target }}-cuda${{ matrix.ext }}
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
 
-      - name: Build executable without CUDA support
+          git clone --depth 1 https://github.com/google/swiftshader.git
+          cd swiftshader
+
+          mkdir -p build
+          cd build
+          cmake .. -G Ninja
+          cmake --build . --parallel
+
+          mkdir -p ${{ env.SWIFTSHADER_DIR }}/
+          cp Linux/* ${{ env.SWIFTSHADER_DIR }}/
+
+      - name: Install cargo-nextest
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@nextest
+
+      - name: Run tests (Linux with SwiftShader)
+        if: runner.os == 'Linux'
+        shell: bash
         run: |
-          cargo build --release
-          cp target/release/cugparck-cli${{ matrix.ext }} cugparck-cli-${{ matrix.target }}${{ matrix.ext }}
+          LD_LIBRARY_PATH=${{ env.SWIFTSHADER_DIR }}/ cargo nextest run --profile ci
 
-      - name: Run tests
-        run: cargo test --release --no-fail-fast
+      - name: Publish test report
+        if: always() && runner.os == 'Linux'
+        uses: dorny/test-reporter@v2.1.1
+        with:
+          name: Rust Test Results
+          path: target/nextest/ci/junit.xml
+          reporter: jest-junit
