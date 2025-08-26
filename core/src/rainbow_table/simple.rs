@@ -4,8 +4,7 @@ use std::{
         mpsc::{channel, Sender},
         Arc, Mutex,
     },
-    thread::{self, sleep},
-    time::Duration,
+    thread::{self},
 };
 
 use cubecl::prelude::*;
@@ -196,7 +195,7 @@ impl SimpleTable {
                         })
                         .unwrap();
 
-                    let batch_output = producer.client.read_one(batch_handle.binding());
+                    let batch_output = producer.client.read_one(batch_handle);
                     let batch_midpoints = CompressedPassword::from_bytes(&batch_output);
 
                     // filtrate results
