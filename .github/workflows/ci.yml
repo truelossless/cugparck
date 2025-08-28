@@ -51,41 +51,17 @@ jobs:
       - name: Build project in release mode
         run: cargo build --release --verbose
 
-      - name: Cache SwiftShader build
-        id: cache-swiftshader
-        if: runner.os == 'Linux'
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.SWIFTSHADER_DIR }}
-          key: ${{ runner.os }}-swiftshader-v1
-
-      - name: Build SwiftShader from source if not cached (Linux only)
-        if: steps.cache-swiftshader.outputs.cache-hit != 'true' && runner.os == 'Linux'
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build
-
-          git clone --depth 1 https://github.com/google/swiftshader.git
-          cd swiftshader
-
-          mkdir -p build
-          cd build
-          cmake .. -G Ninja
-          cmake --build . --parallel
-
-          mkdir -p ${{ env.SWIFTSHADER_DIR }}/
-          cp Linux/* ${{ env.SWIFTSHADER_DIR }}/
-
       - name: Install cargo-nextest
         if: runner.os == 'Linux'
         uses: taiki-e/install-action@nextest
 
-      - name: Run tests (Linux with SwiftShader)
+      - name: Run tests (Linux with Lavapipe)
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          LD_LIBRARY_PATH=${{ env.SWIFTSHADER_DIR }}/ cargo nextest run --profile ci
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers libvulkan1
+          cargo nextest run --profile ci
 
       - name: Publish test report
         if: always() && runner.os == 'Linux'
