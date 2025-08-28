@@ -10,7 +10,6 @@ pub fn attack(args: Attack) -> Result<()> {
     let (paths, is_compressed) = get_table_paths_from_dir(&args.dir)?;
 
     let search = search_tables(digest, &paths, is_compressed, args.low_memory)?;
-
     if let Some(password) = search {
         println!(
             "{}",

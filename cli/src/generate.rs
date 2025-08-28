@@ -3,7 +3,7 @@ use crossterm::event::{self, KeyCode, KeyEventKind};
 use cugparck_core::{
     init_setup, BatchStatus, CompressedTable, CudaRuntime, Dx12, Event, Metal, OpenGl,
     RainbowTable, RainbowTableCtx, RainbowTableCtxBuilder, SimpleTable, SimpleTableHandle, Vulkan,
-    WebGpu, WgpuRuntime, DEFAULT_FILTER_COUNT, PRODUCER_COUNT,
+    WebGpu, WgpuRuntime, PRODUCER_COUNT,
 };
 use human_repr::HumanDuration;
 use ratatui::{
@@ -95,8 +95,9 @@ impl TableStats {
 
         let actual_dataset = Dataset::default()
             .name(format!(
-                "Actual filtration ({} filters)",
-                DEFAULT_FILTER_COUNT
+                "Actual filtration ({} filter{})",
+                self.ctx.filter_count,
+                if self.ctx.filter_count > 1 { "s" } else { "" }
             ))
             .marker(symbols::Marker::Braille)
             .style(Style::new().fg(Color::Blue))
@@ -209,7 +210,7 @@ impl GenerateWidget {
         let ext = if self.args.compress { "rtcde" } else { "rt" };
 
         // create all table stats
-        for i in self.args.start_from..self.args.table_count {
+        for i in self.args.start_from..self.args.start_from + self.args.table_count {
             let ctx = self.ctx_builder.clone().table_number(i).build()?;
 
             // precompute the theoritical number of unique chains
@@ -482,12 +483,12 @@ impl Widget for &GenerateWidget {
         }
 
         Line::from(vec![
-            " Page Left ".into(),
-            "<Left>".blue().bold(),
-            " Page Right ".into(),
-            "<Right>".blue().bold(),
-            " Quit ".into(),
+            "<Left> ".blue().bold(),
+            "Page Left   ".into(),
+            "<Right> ".blue().bold(),
+            "Page Right   ".into(),
             "<Q> ".blue().bold(),
+            "Quit".into(),
         ])
         .render(footer, buf);
     }

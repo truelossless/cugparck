@@ -22,7 +22,7 @@ pub use {
 
 /// The default number of filters.
 /// "Precomputation for Rainbow Tables has Never Been so Fast" figure 3 shows that 20 is a reasonable number.
-pub const DEFAULT_FILTER_COUNT: usize = 20;
+pub const DEFAULT_FILTER_COUNT: u64 = 20;
 
 /// The default chain length.
 pub const DEFAULT_CHAIN_LENGTH: u64 = 10_000;

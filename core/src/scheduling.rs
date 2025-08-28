@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::{ctx::RainbowTableCtx, DEFAULT_FILTER_COUNT};
+use crate::ctx::RainbowTableCtx;
 
 /// Infornations about a batch.
 #[derive(Debug)]
@@ -112,26 +112,18 @@ impl ExactSizeIterator for BatchIterator {}
 
 /// An iterator to get the columns where a filtration should happen.
 pub struct FiltrationIterator {
-    i: usize,
-    current_col: usize,
-    gamma: f64,
-    frac: f64,
-    ctx: RainbowTableCtx,
+    current_col: Option<usize>,
+    optimal_filters: OptimalFilterPosIterator,
+    t: u64,
 }
 
 impl FiltrationIterator {
     /// Creates a new FiltrationIterator.
-    pub fn new(ctx: RainbowTableCtx) -> Self {
-        // from "Precomputation for Rainbow Tables has Never Been so Fast" theorem 3
-        let gamma = 2. * ctx.n as f64 / ctx.m0 as f64;
-        let frac = (ctx.t as f64 + gamma - 1.) / gamma;
-
+    pub fn new(ctx: &RainbowTableCtx) -> Self {
         Self {
-            gamma,
-            frac,
-            ctx,
-            i: 0,
-            current_col: 0,
+            current_col: Some(0),
+            optimal_filters: OptimalFilterPosIterator::new(ctx),
+            t: ctx.t,
         }
     }
 }
@@ -140,28 +132,65 @@ impl Iterator for FiltrationIterator {
     type Item = Range<usize>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.i == DEFAULT_FILTER_COUNT {
-            self.i += 1;
-            return Some(self.current_col..self.ctx.t as usize - 1);
-        } else if self.i >= DEFAULT_FILTER_COUNT {
+        match (self.optimal_filters.next(), self.current_col) {
+            // new filter
+            (Some(filter_col), Some(current_col)) => {
+                self.current_col = Some(filter_col);
+
+                // same filtration column, it can happen with small tables
+                if filter_col == current_col {
+                    self.next()
+                } else {
+                    Some(current_col..filter_col)
+                }
+            }
+            // all filters done, finish the chain
+            (None, Some(current_col)) => {
+                self.current_col = None;
+                Some(current_col..self.t as usize - 1)
+            }
+            // filters done and chain finished
+            _ => None,
+        }
+    }
+}
+
+pub struct OptimalFilterPosIterator {
+    i: usize,
+    filter_count: u64,
+    gamma: f64,
+    frac: f64,
+}
+
+impl OptimalFilterPosIterator {
+    pub fn new(ctx: &RainbowTableCtx) -> Self {
+        // from "Precomputation for Rainbow Tables has Never Been so Fast" theorem 3
+        let gamma = 2. * ctx.n as f64 / ctx.m0 as f64;
+        let frac = (ctx.t as f64 + gamma - 1.) / gamma;
+
+        Self {
+            i: 0,
+            filter_count: ctx.filter_count,
+            gamma,
+            frac,
+        }
+    }
+}
+
+impl Iterator for OptimalFilterPosIterator {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.i == self.filter_count as usize {
             return None;
         }
 
-        let filter_col = (self.gamma * self.frac.powf(self.i as f64 / DEFAULT_FILTER_COUNT as f64)
-            - self.gamma) as usize
+        let filter_col = (self.gamma * self.frac.powf(self.i as f64 / self.filter_count as f64)
+            - self.gamma) as u64
             + 2;
 
-        let col = self.current_col;
-
         self.i += 1;
-        self.current_col = filter_col;
-
-        // same filtration column, it can happen with small tables
-        if col == filter_col {
-            return self.next();
-        }
-
-        Some(col..filter_col)
+        Some(filter_col as usize)
     }
 }
 

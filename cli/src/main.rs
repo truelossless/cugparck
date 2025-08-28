@@ -18,7 +18,8 @@ use attack::attack;
 use compress::compress;
 use cugparck_core::{
     ClusterTable, CompressedTable, Digest, HashFunction, Password, RainbowTable, SimpleTable,
-    DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET, DEFAULT_MAX_PASSWORD_LENGTH,
+    DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET, DEFAULT_FILTER_COUNT,
+    DEFAULT_MAX_PASSWORD_LENGTH,
 };
 use decompress::decompress;
 use generate::generate;
@@ -176,7 +177,7 @@ pub struct Generate {
 
     /// Start the generation from this table number.
     /// Useful to generate tables in several times, or on multiple computers.
-    #[clap(short = 'f', long, value_parser = value_parser!(u8).range(0..), default_value_t = 0)]
+    #[clap(short = 'i', long, value_parser = value_parser!(u8).range(0..), default_value_t = 0)]
     start_from: u8,
 
     /// Optimize the storage of the rainbow table(s) using compressed delta encoding.
@@ -199,6 +200,14 @@ pub struct Generate {
     /// Prefer using alpha if you don't know what you're doing.
     #[clap(short, long, value_parser = value_parser!(u64).range(1..), group = "startpoint")]
     startpoints: Option<u64>,
+
+    /// The number of filters to use.
+    /// A filter requires the chains to be sent back to the CPU so they can be deduplicated.
+    /// This way, less useless hashing work is done on the GPU on chains that collides.
+    /// However, setting this value too high will put more strain on the CPU and underutilize the
+    /// GPU.
+    #[clap(short, long, default_value_t = DEFAULT_FILTER_COUNT)]
+    filter_count: u64,
 }
 
 /// Dump and crack NTLM hashes from Windows accounts.

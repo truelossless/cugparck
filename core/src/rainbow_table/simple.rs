@@ -4,7 +4,7 @@ use std::{
         mpsc::{channel, Sender},
         Arc, Mutex,
     },
-    thread::{self},
+    thread,
 };
 
 use cubecl::prelude::*;
@@ -82,7 +82,7 @@ impl SimpleTable {
             producers.push(Producer::new(i as u8));
         }
 
-        for columns in FiltrationIterator::new(ctx.clone()) {
+        for columns in FiltrationIterator::new(&ctx) {
             debug!("New computation step between columns {columns:?}");
             // make available all producers
             for producer in producers.drain(..) {

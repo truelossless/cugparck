@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     error::{CugparckError, CugparckResult},
     hash::HashFunction,
-    DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET, DEFAULT_MAX_PASSWORD_LENGTH,
-    DEFAULT_TABLE_NUMBER, MAX_PASSWORD_LENGTH_ALLOWED,
+    DEFAULT_APLHA, DEFAULT_CHAIN_LENGTH, DEFAULT_CHARSET, DEFAULT_FILTER_COUNT,
+    DEFAULT_MAX_PASSWORD_LENGTH, DEFAULT_TABLE_NUMBER, MAX_PASSWORD_LENGTH_ALLOWED,
 };
 
 /// A builder for a rainbow table context.
@@ -17,6 +17,7 @@ pub struct RainbowTableCtxBuilder {
     max_password_length: u8,
     m0: Option<u64>,
     alpha: f64,
+    filter_count: u64,
 }
 
 impl Default for RainbowTableCtxBuilder {
@@ -29,6 +30,7 @@ impl Default for RainbowTableCtxBuilder {
             tn: DEFAULT_TABLE_NUMBER + 1,
             m0: None,
             alpha: DEFAULT_APLHA,
+            filter_count: DEFAULT_FILTER_COUNT,
         }
     }
 }
@@ -96,6 +98,17 @@ impl RainbowTableCtxBuilder {
         self
     }
 
+    /// Sets the numbers of filters of the context.
+    /// A filter requires the chains to be sent back to the CPU so they can be deduplicated.
+    /// This way, less useless hashing work is done on the GPU on chains that collides.
+    /// However, setting this value too high will put more strain on the CPU and underutilize the
+    /// GPU.
+    pub fn filter_count(mut self, filter_count: u64) -> Self {
+        self.filter_count = filter_count;
+
+        self
+    }
+
     /// Builds a RainbowTableCtx with the specified parameters.
     pub fn build(mut self) -> CugparckResult<RainbowTableCtx> {
         if self.max_password_length > MAX_PASSWORD_LENGTH_ALLOWED as u8 {
@@ -147,6 +160,7 @@ impl RainbowTableCtxBuilder {
             max_password_length: self.max_password_length,
             t: self.t,
             tn: self.tn,
+            filter_count: self.filter_count,
         })
     }
 }
@@ -171,6 +185,8 @@ pub struct RainbowTableCtx {
     pub search_spaces: Vec<u64>,
     /// The table number.
     pub tn: u8,
+    /// The number of filters.
+    pub filter_count: u64,
 }
 
 impl RainbowTableCtx {
@@ -193,5 +209,6 @@ pub fn build_test_ctx() -> RainbowTableCtx {
         tn: DEFAULT_TABLE_NUMBER + 1,
         m0: 0,
         n: 0,
+        filter_count: 1,
     }
 }
